@@ -396,13 +396,7 @@ class ast_visitor
                     CXCursor parent_cursor);
 
     bool
-    graph_function_decl(CXCursor cursor,
-                        CXCursor parent_cursor);
-
-
-    bool
-    graph_compound_stmt(stack_sentry<function_decl> &function_def_sentry,
-                        stack_sentry<cursor_location> & compound_stmt_sentry,
+    graph_function_decl(stack_sentry<function_decl> & function_def_sentry,
                         CXCursor cursor,
                         CXCursor parent_cursor);
 
@@ -424,7 +418,9 @@ class ast_visitor
      *  - 
      */
     bool
-    graph_member_function(CXCursor cursor, CXCursor parent_cursor);
+    graph_member_function_decl(stack_sentry<function_decl> & function_def_sentry,
+                               CXCursor cursor,
+                               CXCursor parent_cursor);
 
     bool
     graph_member_ref_expr(CXCursor cursor, CXCursor parent_cursor);
@@ -437,12 +433,15 @@ class ast_visitor
                 const cursor_location & location);
 
     bool
-    declaration_exists(const std::string & label,
-                       const cursor_location & location);
+    node_exists_by_location(const std::string & label,
+                            const cursor_location & location);
+
+    bool
+    node_exists_by_usr(const std::string & label,
+                       const std::string & universal_symbol_reference);
 
 
     std::vector<namespace_decl> _namespaces;
-    std::vector<cursor_location> _compound_stmts;
     mg::Client * const _mgclient;
     std::vector<function_decl> _function_definitions;
     std::vector<cursor_location> _call_expressions;
@@ -483,7 +482,6 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 
     stack_sentry<namespace_decl> namespace_sentry(std::ref(this->_namespaces));
     stack_sentry<function_decl> function_def_sentry(std::ref(this->_function_definitions));
-    stack_sentry<cursor_location> compound_stmt_sentry(std::ref(this->_compound_stmts));
     stack_sentry<cursor_location> call_expr_sentry(std::ref(this->_call_expressions));
 
     const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
@@ -500,16 +498,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
         case CXCursor_FunctionDecl:
         {
-            if (!this->graph_function_decl(cursor, parent_cursor))
-            {
-                return CXChildVisit_Break;
-            }
-
-            break;
-        }
-        case CXCursor_CompoundStmt:
-        {
-            if (!this->graph_compound_stmt(function_def_sentry, compound_stmt_sentry, cursor, parent_cursor))
+            if (!this->graph_function_decl(function_def_sentry, cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -541,7 +530,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
         case CXCursor_CXXMethod:
         {
-            if (!this->graph_member_function(cursor, parent_cursor))
+            if (!this->graph_member_function_decl(function_def_sentry, cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -554,6 +543,8 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
             {
                 return CXChildVisit_Break;
             }
+
+            break;
         }
         case CXCursor_MemberRefExpr:
         {
@@ -579,7 +570,7 @@ ast_visitor::graph_namespace(stack_sentry<namespace_decl> & namespace_sentry, CX
     namespace_sentry.push(namespace_decl{name, cursor_loc});
 
     {
-        if (this->declaration_exists("NamespaceDeclaration", cursor_loc))
+        if (this->node_exists_by_location("NamespaceDeclaration", cursor_loc))
         {
             return true;
         }
@@ -716,12 +707,16 @@ ast_visitor::graph_namespace(stack_sentry<namespace_decl> & namespace_sentry, CX
 }
 
 bool
-ast_visitor::graph_function_decl(CXCursor cursor, CXCursor parent_cursor)
+ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sentry,
+                                 CXCursor cursor,
+                                 CXCursor parent_cursor)
 {
     /* This function does the following:
-     * - Create a FunctionDecl node
-     * - Create the function node if it doesn't already exist
-     * - Create the relation ship between the FunctionDecl and the Function nodes
+     * - Create a Function node if one doesn't already exists
+     * - Creates either a FunctionDeclaration node or a FunctionDefinition node based
+     *   on whether the cursor is a declaration or definition
+     * - Create the relation ship between the FunctionDeclaration or the
+     *   FunctionDefinition and the Function nodes
      * - Create the relationship between the Function and the Namespace
      */
     const cursor_location cursor_loc = cursor_location(cursor);
@@ -729,59 +724,14 @@ ast_visitor::graph_function_decl(CXCursor cursor, CXCursor parent_cursor)
     const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
     const std::string usr = ngclang::to_string(cursor, &clang_getCursorUSR);
 
-    if (this->declaration_exists("FunctionDeclaration", cursor_loc))
-    {
-        // function declaration already exists, so no need to process the rest
-        return true;
-    }
-
-    {
-        // Create function declaration node
-        mg::Map query_params(4);
-        query_params.Insert("file", mg::Value(cursor_loc.file()));
-        query_params.Insert("line", mg::Value((int) cursor_loc.line()));
-        query_params.Insert("column", mg::Value(cursor_loc.column()));
-        query_params.Insert("name", mg::Value(display_name));
-                        
-        std::stringstream ss;
-        ss << "create(:FunctionDeclaration {"
-           << "name: $name,"
-           << "file: $file,"
-           << "line: $line,"
-           << "column: $column})";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-    }
-
-    // Create function node if it does not already exist
-    const bool function_exists = [this, &usr]() {
-        mg::Map query_params(1);
-        query_params.Insert("universal_symbol_reference", mg::Value(usr));
-
-        std::stringstream ss;
-        ss << "match (f:Function) where f.universal_symbol_reference = $universal_symbol_reference return f";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            throw std::runtime_error("failed to execute Function existence check");
-        }
-
-        return static_cast<bool>(this->_mgclient->FetchOne());
-    }();
-
-    if (!function_exists)
+    if (!this->node_exists_by_usr("Function", usr))
     {
         mg::Map query_params(4);
         query_params.Insert("fq_name", mg::Value(this->fully_qualified_namespace() + "::"+ name));
         query_params.Insert("name", mg::Value(name));
         query_params.Insert("display_name", mg::Value(display_name));
         query_params.Insert("universal_symbol_reference", mg::Value(usr));
-                        
+
         std::stringstream ss;
         ss << "create(:Function {"
            << "name: $display_name,"
@@ -796,26 +746,118 @@ ast_visitor::graph_function_decl(CXCursor cursor, CXCursor parent_cursor)
         }
     }
 
+    const unsigned is_definition = clang_isCursorDefinition(cursor);
+    if (is_definition)
     {
-        // Create function declaration to function relationship
-        mg::Map query_params(4);
-        query_params.Insert("universal_symbol_reference", mg::Value(usr));
-        query_params.Insert("file", mg::Value(cursor_loc.file()));
-        query_params.Insert("line", mg::Value(cursor_loc.line()));
-        query_params.Insert("column", mg::Value(cursor_loc.column()));
+        function_decl function_def {cursor};
+        function_def_sentry.push(function_def);
+
+        const bool function_definition_exists = [&function_def, this]() {
+
+            mg::Map query_params(1);
+            query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+
+            std::stringstream ss;
+            ss << "match (fd:FunctionDefinition) where fd.universal_symbol_reference = $universal_symbol_reference return fd";
+
+            ngmg::statement_executor executor(std::ref(*this->_mgclient));
+            if (!executor.execute(ss.str(), query_params.AsConstMap()))
+            {
+                throw std::runtime_error("error running: " + ss.str());
+            }
+
+            return static_cast<bool>(this->_mgclient->FetchOne());
+        }();
+
+        if (!this->node_exists_by_usr("FunctionDefinition", function_def.universal_symbol_reference()))
+        {
+            const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+            mg::Map query_params(5);
+            query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+            query_params.Insert("file", mg::Value(cursor_loc.file()));
+            query_params.Insert("line", mg::Value(cursor_loc.line()));
+            query_params.Insert("column", mg::Value(cursor_loc.column()));
+            query_params.Insert("name", mg::Value(display_name));
+
+            std::stringstream ss;
+            ss << "create(:FunctionDefinition {"
+               << "universal_symbol_reference: $universal_symbol_reference,"
+               << "file: $file,"
+               << "line: $line,"
+               << "column: $column,"
+               << "name: $name"
+               << "})";
+
+            ngmg::statement_executor executor(std::ref(*this->_mgclient));
+            if (!executor.execute(ss.str(), query_params.AsConstMap()))
+            {
+                return false;
+            }
+        }
+
+        mg::Map query_params(1);
+        query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
 
         std::stringstream ss;
-        ss << "match (f:Function), (fd:FunctionDeclaration) where"
+        ss << "match(f:Function), (fd:FunctionDefinition) where"
            << " f.universal_symbol_reference = $universal_symbol_reference"
-           << " and fd.line = $line"
-           << " and fd.column = $column"
-           << " and fd.file = $file"
-           << " create (fd)-[:DECLARES]->(f)";
+           << " and fd.universal_symbol_reference = $universal_symbol_reference"
+           << " create (fd)-[:DEFINES]->(f)";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
         if (!executor.execute(ss.str(), query_params.AsConstMap()))
         {
             return false;
+        }
+    }
+    else
+    {
+        if (!this->node_exists_by_location("FunctionDeclaration", cursor_loc))
+        {
+            {
+                // Create function declaration node
+                mg::Map query_params(4);
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value((int) cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("name", mg::Value(display_name));
+
+                std::stringstream ss;
+                ss << "create(:FunctionDeclaration {"
+                   << "name: $name,"
+                   << "file: $file,"
+                   << "line: $line,"
+                   << "column: $column})";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
+
+            {
+                // Create function declaration to function relationship
+                mg::Map query_params(4);
+                query_params.Insert("universal_symbol_reference", mg::Value(usr));
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+
+                std::stringstream ss;
+                ss << "match (f:Function), (fd:FunctionDeclaration) where"
+                   << " f.universal_symbol_reference = $universal_symbol_reference"
+                   << " and fd.line = $line"
+                   << " and fd.column = $column"
+                   << " and fd.file = $file"
+                   << " create (fd)-[:DECLARES]->(f)";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
         }
     }
 
@@ -825,7 +867,7 @@ ast_visitor::graph_function_decl(CXCursor cursor, CXCursor parent_cursor)
     {
         // Create namespace to function relationship
         const bool edge_exists = [this, &parent_usr, &usr]() {
-            
+
             mg::Map query_params(2);
             query_params.Insert("ns_usr", mg::Value(parent_usr));
             query_params.Insert("f_usr", mg::Value(usr));
@@ -856,157 +898,6 @@ ast_visitor::graph_function_decl(CXCursor cursor, CXCursor parent_cursor)
            << " n.universal_symbol_reference = $n_usr"
            << " and f.universal_symbol_reference = $f_usr"
            << " create (n)-[:HAS]->(f)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool
-ast_visitor::graph_compound_stmt(stack_sentry<function_decl> & function_def_sentry,
-                                 stack_sentry<cursor_location> & compound_stmt_sentry,
-                                 CXCursor cursor,
-                                 CXCursor parent_cursor)
-{
-    const cursor_location cursor_loc = cursor_location(cursor);
-    compound_stmt_sentry.push(cursor_loc);
-
-
-    const CXCursorKind parent_kind = clang_getCursorKind(parent_cursor);
-    const cursor_location parent_loc = cursor_location(parent_cursor);
-
-    if(parent_kind == CXCursor_FunctionDecl)
-    {
-        function_decl function_def {parent_cursor};
-        const std::string display_name = ngclang::to_string(parent_cursor, &clang_getCursorDisplayName);
-
-        function_def_sentry.push(function_def);
-
-        {
-            mg::Map query_params(1);
-            query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
-
-            std::stringstream ss;
-            ss << "match (fd:FunctionDefinition) where fd.universal_symbol_reference = $universal_symbol_reference return fd";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                throw std::runtime_error("error running: " + ss.str());
-            }
-
-            if (static_cast<bool>(this->_mgclient->FetchOne()))
-            {
-                return false;
-            }
-        }
-
-        {
-            mg::Map query_params(5);
-            query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
-            query_params.Insert("file", mg::Value(cursor_loc.file()));
-            query_params.Insert("line", mg::Value(cursor_loc.line()));
-            query_params.Insert("column", mg::Value(cursor_loc.column()));
-            query_params.Insert("name", mg::Value(display_name));
-
-            std::stringstream ss;
-            ss << "create(:FunctionDefinition {"
-               << "universal_symbol_reference: $universal_symbol_reference,"
-               << "file: $file,"
-               << "line: $line,"
-               << "column: $column,"
-               << "name: $name"
-               << "})";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                throw "wtf";
-                return false;
-            }
-        }
-
-        mg::Map query_params(4);
-        query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
-        query_params.Insert("file", mg::Value(cursor_loc.file()));
-        query_params.Insert("line", mg::Value(cursor_loc.line()));
-        query_params.Insert("column", mg::Value(cursor_loc.column()));
-
-        std::stringstream ss;
-        ss << "match(f:Function), (fd:FunctionDefinition) where"
-           << " f.universal_symbol_reference = $universal_symbol_reference"
-           << " and fd.file = $file"
-           << " and fd.line = $line"
-           << " and fd.column = $column"
-           << " create (fd)-[:DEFINES]->(f)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-    }
-    else if (parent_kind == CXCursor_CXXMethod)
-    {
-        function_decl function_def {parent_cursor};
-        const std::string display_name = ngclang::to_string(parent_cursor, &clang_getCursorDisplayName);
-
-        function_def_sentry.push(function_def);
-
-        {
-            mg::Map query_params(1);
-            query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
-
-            std::stringstream ss;
-            ss << "match (mfd:MemberFunctionDefinition) where mfd.universal_symbol_reference = $universal_symbol_reference return mfd";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                throw std::runtime_error("error running: " + ss.str());
-            }
-
-            if (static_cast<bool>(this->_mgclient->FetchOne()))
-            {
-                return false;
-            }
-        }
-
-        {
-            std::stringstream ss;
-            ss << "create(:MemberFunctionDefinition {"
-               << "universal_symbol_reference: " << "'" << function_def.universal_symbol_reference() << "',"
-               << "file: " << "'" << cursor_loc.file() << "',"
-               << "line: " << cursor_loc.line() << ","
-               << "column: " << cursor_loc.column() << ','
-               << "name: " << "'" << display_name << "'"
-               << "})";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str()))
-            {
-                return false;
-            }
-        }
-
-        mg::Map query_params(4);
-        query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
-        query_params.Insert("file", mg::Value(cursor_loc.file()));
-        query_params.Insert("line", mg::Value(cursor_loc.line()));
-        query_params.Insert("column", mg::Value(cursor_loc.column()));
-
-        std::stringstream ss;
-        ss << "match(mf:MemberFunction), (mfd:MemberFunctionDefinition) where"
-           << " mf.universal_symbol_reference = $universal_symbol_reference"
-           << " and mfd.file = $file"
-           << " and mfd.line = $line"
-           << " and mfd.column = $column"
-           << " create (mfd)-[:DEFINES]->(mf)";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
         if (!executor.execute(ss.str(), query_params.AsConstMap()))
@@ -1082,7 +973,7 @@ ast_visitor::graph_class_decl(CXCursor cursor, CXCursor parent_cursor)
     const std::string usr = ngclang::to_string(cursor, &clang_getCursorUSR);
 
     {
-        if (this->declaration_exists("ClassDeclaration", cursor_loc))
+        if (this->node_exists_by_location("ClassDeclaration", cursor_loc))
         {
             // class declaration already exists, so no need to process the rest
             return true;
@@ -1250,154 +1141,174 @@ ast_visitor::graph_base_class_specifier(CXCursor cursor, CXCursor parent_cursor)
 }
 
 bool
-ast_visitor::graph_member_function(CXCursor cursor, CXCursor parent_cursor)
+ast_visitor::graph_member_function_decl(stack_sentry<function_decl> & function_def_sentry,
+                                        CXCursor cursor,
+                                        CXCursor parent_cursor)
 {
     const cursor_location cursor_loc = cursor_location(cursor);
     const std::string cursor_display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
     const std::string cursor_usr = ngclang::to_string(cursor, &clang_getCursorUSR);
     const std::string parent_cursor_usr = ngclang::to_string(parent_cursor, &clang_getCursorUSR);
 
-    if (this->declaration_exists("MemberFunctionDeclaration", cursor_loc))
+    if (!this->node_exists_by_usr("MemberFunction", cursor_usr))
     {
-        return true;
-    }
-
-    {
-        // Create MemberFunctionDeclaration node
-        mg::Map query_params(4);
-        query_params.Insert("file", mg::Value(cursor_loc.file()));
-        query_params.Insert("line", mg::Value((int) cursor_loc.line()));
-        query_params.Insert("column", mg::Value(cursor_loc.column()));
-        query_params.Insert("name", mg::Value(cursor_display_name));
-                        
-        std::stringstream ss;
-        ss << "create(:MemberFunctionDeclaration {"
-           << "name: $name,"
-           << "file: $file,"
-           << "line: $line,"
-           << "column: $column})";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
         {
-            return false;
-        }
-    }
-
-    {
-        // Create MemberFunction node if it doesn't already exist
-        const bool member_function_exists = [this, &cursor_usr]() {
-
-            mg::Map query_params(1);
-            query_params.Insert("usr", mg::Value(cursor_usr));
+            mg::Map query_params(2);
+            query_params.Insert("display_name", mg::Value(cursor_display_name));
+            query_params.Insert("universal_symbol_reference", mg::Value(cursor_usr));
 
             std::stringstream ss;
-            ss << "match (mf:MemberFunction) "
-               << "where "
-               << "mf.universal_symbol_reference = $usr return mf";
+            ss << "create(:MemberFunction {"
+               << "name: $display_name,"
+               << "universal_symbol_reference: $universal_symbol_reference})";
 
             ngmg::statement_executor executor(std::ref(*this->_mgclient));
             if (!executor.execute(ss.str(), query_params.AsConstMap()))
             {
-                throw std::runtime_error("error running: " + ss.str());
+                return false;
             }
+        }
 
-            return static_cast<bool>(this->_mgclient->FetchOne());
-        }();
-
-        if (!member_function_exists)
         {
-            {
-                // MemberFunction Node
-                mg::Map query_params(2);
-                query_params.Insert("display_name", mg::Value(cursor_display_name));
-                query_params.Insert("universal_symbol_reference", mg::Value(cursor_usr));
-                        
-                std::stringstream ss;
-                ss << "create(:MemberFunction {"
-                   << "name: $display_name,"
-                   << "universal_symbol_reference: $universal_symbol_reference})";
+            // Class Relationship
+            mg::Map query_params(2);
+            query_params.Insert("c_usr", mg::Value(parent_cursor_usr));
+            query_params.Insert("mf_usr", mg::Value(cursor_usr));
 
-                ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                if (!executor.execute(ss.str(), query_params.AsConstMap()))
-                {
-                    return false;
-                }
+            std::stringstream ss;
+            ss << "match (mf:MemberFunction), (c:Class) "
+               << "where "
+               << "mf.universal_symbol_reference = $mf_usr and "
+               << "c.universal_symbol_reference = $c_usr "
+               << "create (c)-[:HAS]->(mf)";
+
+            ngmg::statement_executor executor(std::ref(*this->_mgclient));
+            if (!executor.execute(ss.str(), query_params.AsConstMap()))
+            {
+                return false;
             }
+        }
 
+        {
+            // Virtual function overrides
+            ngclang::overridden_cursors_t overrides;
+            unsigned num_overrides;
+            clang_getOverriddenCursors(cursor, &overrides.get(), &num_overrides);
+
+            for(unsigned i = 0; i < num_overrides; ++i)
             {
-                // Class Relationship
+                CXCursor & override_cursor = overrides.get()[i];
+                const std::string override_usr = ngclang::to_string(override_cursor, &clang_getCursorUSR);
+
                 mg::Map query_params(2);
-                query_params.Insert("c_usr", mg::Value(parent_cursor_usr));
                 query_params.Insert("mf_usr", mg::Value(cursor_usr));
+                query_params.Insert("override_usr", mg::Value(override_usr));
 
                 std::stringstream ss;
-                ss << "match (mf:MemberFunction), (c:Class) "
+                ss << "match (mf:MemberFunction), (of:MemberFunction) "
                    << "where "
                    << "mf.universal_symbol_reference = $mf_usr and "
-                   << "c.universal_symbol_reference = $c_usr "
-                   << "create (c)-[:HAS]->(mf)";
+                   << "of.universal_symbol_reference = $override_usr "
+                   << "create (mf)-[:OVERRIDES]->(of)";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
                 if (!executor.execute(ss.str(), query_params.AsConstMap()))
                 {
                     return false;
-                }
-            }
-
-            {
-                // Virtual function overrides
-                ngclang::overridden_cursors_t overrides;
-                unsigned num_overrides;
-                clang_getOverriddenCursors(cursor, &overrides.get(), &num_overrides);
-
-                for(unsigned i = 0; i < num_overrides; ++i)
-                {
-                    CXCursor & override_cursor = overrides.get()[i];
-                    const std::string override_usr = ngclang::to_string(override_cursor, &clang_getCursorUSR);
-
-                    mg::Map query_params(2);
-                    query_params.Insert("mf_usr", mg::Value(cursor_usr));
-                    query_params.Insert("override_usr", mg::Value(override_usr));
-
-                    std::stringstream ss;
-                    ss << "match (mf:MemberFunction), (of:MemberFunction) "
-                       << "where "
-                       << "mf.universal_symbol_reference = $mf_usr and "
-                       << "of.universal_symbol_reference = $override_usr "
-                       << "create (mf)-[:OVERRIDES]->(of)";
-
-                    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-                    {
-                        return false;
-                    }
                 }
             }
         }
     }
 
+    const unsigned is_definition = clang_isCursorDefinition(cursor);
+    if (is_definition)
     {
-        // Create MemberFunctionDeclaration to MemberFunction relationship
-        mg::Map query_params(4);
-        query_params.Insert("file", mg::Value(cursor_loc.file()));
-        query_params.Insert("line", mg::Value((int) cursor_loc.line()));
-        query_params.Insert("column", mg::Value(cursor_loc.column()));
-        query_params.Insert("usr", mg::Value(cursor_usr));
+        function_decl function_def {cursor};
+        function_def_sentry.push(function_def);
+        if (!this->node_exists_by_usr("MemberFunctionDefinition", cursor_usr))
+        {
+            const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+
+            std::stringstream ss;
+            ss << "create(:MemberFunctionDefinition {"
+               << "universal_symbol_reference: " << "'" << cursor_usr << "',"
+               << "file: " << "'" << cursor_loc.file() << "',"
+               << "line: " << cursor_loc.line() << ","
+               << "column: " << cursor_loc.column() << ','
+               << "name: " << "'" << display_name << "'"
+               << "})";
+
+            ngmg::statement_executor executor(std::ref(*this->_mgclient));
+            if (!executor.execute(ss.str()))
+            {
+                return false;
+            }
+        }
+
+        mg::Map query_params(1);
+        query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
 
         std::stringstream ss;
-        ss << "match (mfd:MemberFunctionDeclaration), (mf:MemberFunction) "
-           << "where "
-           << "mfd.file = $file and "
-           << "mfd.line = $line and "
-           << "mfd.column = $column and "
-           << "mf.universal_symbol_reference = $usr "
-           << "create (mfd)-[:DECLARES]->(mf)";
+        ss << "match(mf:MemberFunction), (mfd:MemberFunctionDefinition) where"
+           << " mf.universal_symbol_reference = $universal_symbol_reference"
+           << " and mfd.universal_symbol_reference = $universal_symbol_reference"
+           << " create (mfd)-[:DEFINES]->(mf)";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
         if (!executor.execute(ss.str(), query_params.AsConstMap()))
         {
             return false;
+        }
+    }
+    else
+    {
+        if (!this->node_exists_by_location("MemberFunctionDeclaration", cursor_loc))
+        {
+            {
+                // Create MemberFunctionDeclaration node
+                mg::Map query_params(4);
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value((int) cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("name", mg::Value(cursor_display_name));
+
+                std::stringstream ss;
+                ss << "create(:MemberFunctionDeclaration {"
+                   << "name: $name,"
+                   << "file: $file,"
+                   << "line: $line,"
+                   << "column: $column})";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
+
+            {
+                // Create MemberFunctionDeclaration to MemberFunction relationship
+                mg::Map query_params(4);
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value((int) cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("usr", mg::Value(cursor_usr));
+
+                std::stringstream ss;
+                ss << "match (mfd:MemberFunctionDeclaration), (mf:MemberFunction) "
+                   << "where "
+                   << "mfd.file = $file and "
+                   << "mfd.line = $line and "
+                   << "mfd.column = $column and "
+                   << "mf.universal_symbol_reference = $usr "
+                   << "create (mfd)-[:DECLARES]->(mf)";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
         }
     }
 
@@ -1501,8 +1412,8 @@ ast_visitor::edge_exists(const std::string & label,
     return static_cast<bool>(this->_mgclient->FetchOne());}
 
 bool
-ast_visitor::declaration_exists(const std::string & label,
-                                const cursor_location & location)
+ast_visitor::node_exists_by_location(const std::string & label,
+                                     const cursor_location & location)
 {
     mg::Map query_params(3);
     query_params.Insert("file", mg::Value(location.file()));
@@ -1520,6 +1431,25 @@ ast_visitor::declaration_exists(const std::string & label,
     if (!executor.execute(ss.str(), query_params.AsConstMap()))
     {
         return false;
+    }
+
+    return static_cast<bool>(this->_mgclient->FetchOne());
+}
+
+bool
+ast_visitor::node_exists_by_usr(const std::string & label,
+                                const std::string & universal_symbol_reference)
+{
+    mg::Map query_params(1);
+    query_params.Insert("universal_symbol_reference", mg::Value(universal_symbol_reference));
+
+    std::stringstream ss;
+    ss << "match (fd:" << label << ") where fd.universal_symbol_reference = $universal_symbol_reference return fd";
+
+    ngmg::statement_executor executor(std::ref(*this->_mgclient));
+    if (!executor.execute(ss.str(), query_params.AsConstMap()))
+    {
+        throw std::runtime_error("error running: " + ss.str());
     }
 
     return static_cast<bool>(this->_mgclient->FetchOne());
