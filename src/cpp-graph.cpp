@@ -752,62 +752,49 @@ ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sent
         function_decl function_def {cursor};
         function_def_sentry.push(function_def);
 
-        const bool function_definition_exists = [&function_def, this]() {
-
-            mg::Map query_params(1);
-            query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
-
-            std::stringstream ss;
-            ss << "match (fd:FunctionDefinition) where fd.universal_symbol_reference = $universal_symbol_reference return fd";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                throw std::runtime_error("error running: " + ss.str());
-            }
-
-            return static_cast<bool>(this->_mgclient->FetchOne());
-        }();
-
         if (!this->node_exists_by_usr("FunctionDefinition", function_def.universal_symbol_reference()))
         {
-            const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
-            mg::Map query_params(5);
-            query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
-            query_params.Insert("file", mg::Value(cursor_loc.file()));
-            query_params.Insert("line", mg::Value(cursor_loc.line()));
-            query_params.Insert("column", mg::Value(cursor_loc.column()));
-            query_params.Insert("name", mg::Value(display_name));
-
-            std::stringstream ss;
-            ss << "create(:FunctionDefinition {"
-               << "universal_symbol_reference: $universal_symbol_reference,"
-               << "file: $file,"
-               << "line: $line,"
-               << "column: $column,"
-               << "name: $name"
-               << "})";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
             {
-                return false;
+                const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+                mg::Map query_params(5);
+                query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("name", mg::Value(display_name));
+
+                std::stringstream ss;
+                ss << "create(:FunctionDefinition {"
+                   << "universal_symbol_reference: $universal_symbol_reference,"
+                   << "file: $file,"
+                   << "line: $line,"
+                   << "column: $column,"
+                   << "name: $name"
+                   << "})";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
             }
-        }
 
-        mg::Map query_params(1);
-        query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+            {
+                mg::Map query_params(1);
+                query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
 
-        std::stringstream ss;
-        ss << "match(f:Function), (fd:FunctionDefinition) where"
-           << " f.universal_symbol_reference = $universal_symbol_reference"
-           << " and fd.universal_symbol_reference = $universal_symbol_reference"
-           << " create (fd)-[:DEFINES]->(f)";
+                std::stringstream ss;
+                ss << "match(f:Function), (fd:FunctionDefinition) where"
+                   << " f.universal_symbol_reference = $universal_symbol_reference"
+                   << " and fd.universal_symbol_reference = $universal_symbol_reference"
+                   << " create (fd)-[:DEFINES]->(f)";
 
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
         }
     }
     else
@@ -1227,37 +1214,41 @@ ast_visitor::graph_member_function_decl(stack_sentry<function_decl> & function_d
         function_def_sentry.push(function_def);
         if (!this->node_exists_by_usr("MemberFunctionDefinition", cursor_usr))
         {
-            const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
-
-            std::stringstream ss;
-            ss << "create(:MemberFunctionDefinition {"
-               << "universal_symbol_reference: " << "'" << cursor_usr << "',"
-               << "file: " << "'" << cursor_loc.file() << "',"
-               << "line: " << cursor_loc.line() << ","
-               << "column: " << cursor_loc.column() << ','
-               << "name: " << "'" << display_name << "'"
-               << "})";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str()))
             {
-                return false;
+                const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+
+                std::stringstream ss;
+                ss << "create(:MemberFunctionDefinition {"
+                   << "universal_symbol_reference: " << "'" << cursor_usr << "',"
+                   << "file: " << "'" << cursor_loc.file() << "',"
+                   << "line: " << cursor_loc.line() << ","
+                   << "column: " << cursor_loc.column() << ','
+                   << "name: " << "'" << display_name << "'"
+                   << "})";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str()))
+                {
+                    return false;
+                }
             }
-        }
 
-        mg::Map query_params(1);
-        query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+            {
+                mg::Map query_params(1);
+                query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
 
-        std::stringstream ss;
-        ss << "match(mf:MemberFunction), (mfd:MemberFunctionDefinition) where"
-           << " mf.universal_symbol_reference = $universal_symbol_reference"
-           << " and mfd.universal_symbol_reference = $universal_symbol_reference"
-           << " create (mfd)-[:DEFINES]->(mf)";
+                std::stringstream ss;
+                ss << "match(mf:MemberFunction), (mfd:MemberFunctionDefinition) where"
+                   << " mf.universal_symbol_reference = $universal_symbol_reference"
+                   << " and mfd.universal_symbol_reference = $universal_symbol_reference"
+                   << " create (mfd)-[:DEFINES]->(mf)";
 
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
         }
     }
     else
@@ -1672,7 +1663,13 @@ int main(int argc, char ** argv)
     client->Execute("CREATE INDEX ON :Function(universal_symbol_reference);");
     client->DiscardAll();
 
+    client->Execute("CREATE INDEX ON :FunctionDefinition(universal_symbol_reference);");
+    client->DiscardAll();
+
     client->Execute("CREATE INDEX ON :MemberFunction(universal_symbol_reference);");
+    client->DiscardAll();
+
+    client->Execute("CREATE INDEX ON :MemberFunctionDefinition(universal_symbol_reference);");
     client->DiscardAll();
 
     ngclang::object<CXIndex, ngclang::dispose_index> index = clang_createIndex(0,1);
