@@ -143,7 +143,6 @@ CXChildVisitResult
 printing_visitor(CXCursor c, CXCursor parent, CXClientData client_data)
 {
     const CXCursorKind cursor_kind = clang_getCursorKind(c);
-    const CXCursorKind parent_kind = clang_getCursorKind(parent);
     const CXType cursor_type = clang_getCursorType(c);
     const CXSourceLocation location = clang_getCursorLocation(c);
     CXCursor ref = clang_getCursorReferenced(c);
@@ -554,6 +553,10 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
             }
 
             break;            
+        }
+        default:
+        {
+            break;
         }
     }
 

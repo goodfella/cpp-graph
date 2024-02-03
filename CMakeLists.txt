@@ -14,6 +14,7 @@ target_link_libraries(ngclang
 
 target_compile_options(ngclang
   PRIVATE
+  -Wall
   -g3)
 
 target_include_directories(ngclang
@@ -26,6 +27,7 @@ add_executable(cpp-graph
 
 target_compile_options(cpp-graph
   PRIVATE
+  -Wall
   -g3)
 
 set_property(TARGET cpp-graph PROPERTY CXX_STANDARD 20)
