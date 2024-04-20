@@ -8,3 +8,11 @@ create a graph representation of the parsed code with
 The memgraph graph schema is shown below:
 
 ![Graph Schema](./doc/assets/graph-schema.png)
+
+# Building
+
+Building cpp-graph is best done with the
+[cpp-graph-project](https://github.com/goodfella/cpp-graph-project)
+repository since it brings in the necessary dependencies and contains
+a top level CMakeLists.txt that contains the required additional build
+directives.
