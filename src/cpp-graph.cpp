@@ -4,7 +4,9 @@
 #include <clang-c/Index.h>
 #include <cstring>
 #include <exception>
+#include <filesystem>
 #include <functional>
+#include <getopt.h>
 #include <iostream>
 #include <memory>
 #include "ngclang.hpp"
@@ -1738,9 +1740,17 @@ int main(int argc, char ** argv)
     std::string file_to_parse;
     bool print_ast = false;
 
+    static const struct option long_options [] = {
+        {"src-dir", required_argument, nullptr, 0},
+        {0,0,0,0}
+    };
+
+    std::vector<std::filesystem::path> src_dirs;
+    int option_index;
     for(;;)
     {
-        switch(::getopt(argc, argv, "d:f:ph"))
+        switch(::getopt_long(argc, argv, "s:e:d:f:ph",
+                             long_options, &option_index))
         {
             case 'd':
             {
@@ -1761,6 +1771,16 @@ int main(int argc, char ** argv)
             {
                 std::cerr << "cpp-graph -d <build-dir> | -f <file-to-parse> [-p]" << std::endl;
                 return 0;
+            }
+            case 's':
+            {
+                src_dirs.push_back(optarg);
+                continue;
+            }
+            case 0:
+            {
+                src_dirs.push_back(optarg);
+                continue;
             }
             case -1:
             {
@@ -1865,7 +1885,19 @@ int main(int argc, char ** argv)
             CXCompileCommand compile_command =
                 clang_CompileCommands_getCommand(compile_commands.get(), i);
 
-            std::cout << clang_CompileCommand_getFilename(compile_command) << std::endl;
+            const std::filesystem::path file_path(ngclang::to_string(clang_CompileCommand_getFilename(compile_command)));
+            std::filesystem::path src_dir = file_path;
+            src_dir.remove_filename();
+
+            auto is_src_dir = [&src_dir] (const std::filesystem::path & p) {return std::filesystem::equivalent(src_dir, p);};
+            if (!src_dirs.empty() && std::find_if(src_dirs.cbegin(), src_dirs.cend(), is_src_dir) == src_dirs.cend())
+            {
+                // src-dirs specified and the compile command path
+                // isn't in one of the src dirs, so skip parsing
+                continue;
+            }
+
+            std::cout << file_path << std::endl;
 
             parse_compile_command(index.get(), compile_command, *client);
         }
