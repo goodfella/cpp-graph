@@ -377,11 +377,21 @@ class ast_visitor_filter
     bool
     is_src_dir(const std::filesystem::path & path) const;
 
+    bool
+    in_src_tree(const std::filesystem::path & path) const;
+
+    bool
+    parse_file(const std::filesystem::path & file) const;
+
     void
     push_back_src_dir(const std::filesystem::path & src_dir);
 
+    void
+    push_back_src_tree(const std::filesystem::path & src_tree);
+
     private:
     std::vector<std::filesystem::path> _src_dirs;
+    std::vector<std::filesystem::path> _src_trees;
 };
 
 bool
@@ -389,7 +399,7 @@ ast_visitor_filter::is_src_dir(const std::filesystem::path & file) const
 {
     if (this->_src_dirs.empty())
     {
-        // no source dir filter, so all source directories are valid
+        // no source dir filter, so all sources are valid
         return true;
     }
 
@@ -400,10 +410,53 @@ ast_visitor_filter::is_src_dir(const std::filesystem::path & file) const
     return (std::find_if(this->_src_dirs.cbegin(), this->_src_dirs.cend(), is_src_dir) != this->_src_dirs.cend());
 }
 
+bool
+ast_visitor_filter::in_src_tree(const std::filesystem::path & path) const
+{
+    for (auto & t: this->_src_trees)
+    {
+        auto ret = std::mismatch(t.begin(), t.end(), path.begin(), path.end());
+
+        if (ret.first == t.end())
+        {
+            return true;
+        }
+
+        if (std::distance(ret.first, t.end()) == 1 && ret.first->empty())
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void
 ast_visitor_filter::push_back_src_dir(const std::filesystem::path & src_dir)
 {
     this->_src_dirs.push_back(src_dir);
+}
+
+void
+ast_visitor_filter::push_back_src_tree(const std::filesystem::path & src_tree)
+{
+    this->_src_trees.push_back(src_tree);
+}
+
+bool
+ast_visitor_filter::parse_file(const std::filesystem::path & file) const
+{
+    if (!this->_src_trees.empty())
+    {
+        return this->in_src_tree(file);
+    }
+
+    if (this->is_src_dir(file))
+    {
+        return true;
+    }
+
+    return false;
 }
 
 class ast_visitor
@@ -535,7 +588,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
     if (this->_filter)
     {
         const cursor_location cursor_loc = cursor_location(cursor);
-        if (!this->_filter->is_src_dir(cursor_loc.file()))
+        if (!this->_filter->parse_file(cursor_loc.file()))
         {
             return CXChildVisit_Continue;
         }
@@ -1798,6 +1851,7 @@ int main(int argc, char ** argv)
 
     static const struct option long_options [] = {
         {"src-dir", required_argument, nullptr, 0},
+        {"src-tree", required_argument, nullptr, 1},
         {0,0,0,0}
     };
 
@@ -1805,7 +1859,7 @@ int main(int argc, char ** argv)
     int option_index;
     for(;;)
     {
-        switch(::getopt_long(argc, argv, "s:e:d:f:ph",
+        switch(::getopt_long(argc, argv, "s:t:d:f:ph",
                              long_options, &option_index))
         {
             case 'd':
@@ -1836,6 +1890,16 @@ int main(int argc, char ** argv)
             case 0:
             {
                 filter.push_back_src_dir(optarg);
+                continue;
+            }
+            case 't':
+            {
+                filter.push_back_src_tree(optarg);
+                continue;
+            }
+            case 1:
+            {
+                filter.push_back_src_tree(optarg);
                 continue;
             }
             case -1:
@@ -1942,10 +2006,10 @@ int main(int argc, char ** argv)
                 clang_CompileCommands_getCommand(compile_commands.get(), i);
 
             const std::filesystem::path file_path(ngclang::to_string(clang_CompileCommand_getFilename(compile_command)));
-            if (!filter.is_src_dir(file_path))
+            if (!filter.parse_file(file_path))
             {
-                // --src-dirs specified and the file to parse isn't in
-                // a specfied source directory, so skip parsing
+                // The file does not match the specified filter so
+                // don't parse.
                 continue;
             }
 
