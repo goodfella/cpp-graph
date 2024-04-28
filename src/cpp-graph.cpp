@@ -367,13 +367,51 @@ optional_sentry<T>::~optional_sentry()
     }
 }
 
+class ast_visitor_filter
+{
+    public:
+
+    ast_visitor_filter() = default;
+
+    bool
+    is_src_dir(const std::filesystem::path & path) const;
+
+    void
+    push_back_src_dir(const std::filesystem::path & src_dir);
+
+    private:
+    std::vector<std::filesystem::path> _src_dirs;
+};
+
+bool
+ast_visitor_filter::is_src_dir(const std::filesystem::path & file) const
+{
+    if (this->_src_dirs.empty())
+    {
+        // no source dir filter, so all source directories are valid
+        return true;
+    }
+
+    std::filesystem::path src_dir = file;
+    src_dir.remove_filename();
+
+    auto is_src_dir = [&src_dir] (const std::filesystem::path & p) {return std::filesystem::equivalent(src_dir, p);};
+    return (std::find_if(this->_src_dirs.cbegin(), this->_src_dirs.cend(), is_src_dir) != this->_src_dirs.cend());
+}
+
+void
+ast_visitor_filter::push_back_src_dir(const std::filesystem::path & src_dir)
+{
+    this->_src_dirs.push_back(src_dir);
+}
+
 class ast_visitor
 {
-    // probably want to use clang_Location_isFromMainFile to skip system headers
     public:
 
     explicit
-    ast_visitor(std::reference_wrapper<mg::Client> client);
+    ast_visitor(std::reference_wrapper<mg::Client> client,
+                std::optional<std::reference_wrapper<const ast_visitor_filter>> filter = std::optional<std::reference_wrapper<const ast_visitor_filter>>{});
 
     static
     CXChildVisitResult
@@ -448,14 +486,21 @@ class ast_visitor
 
 
     std::vector<namespace_decl> _namespaces;
-    mg::Client * const _mgclient;
+    mg::Client * const _mgclient = nullptr;
+    ast_visitor_filter const * _filter = nullptr;
     std::vector<function_decl> _function_definitions;
     std::vector<cursor_location> _call_expressions;
 };
 
-ast_visitor::ast_visitor(std::reference_wrapper<mg::Client> mgclient):
+ast_visitor::ast_visitor(std::reference_wrapper<mg::Client> mgclient,
+                         std::optional<std::reference_wrapper<const ast_visitor_filter>> filter):
     _mgclient(&mgclient.get())
-{}
+{
+    if (filter)
+    {
+        this->_filter = &filter->get();
+    }
+}
 
 namespace_decl const *
 ast_visitor::parent_namespace() const
@@ -485,6 +530,15 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
     }
 
     //print_cursor(cursor, parent_cursor, this->_level);
+
+    if (this->_filter)
+    {
+        const cursor_location cursor_loc = cursor_location(cursor);
+        if (!this->_filter->is_src_dir(cursor_loc.file()))
+        {
+            return CXChildVisit_Continue;
+        }
+    }
 
     stack_sentry<namespace_decl> namespace_sentry(std::ref(this->_namespaces));
     stack_sentry<function_decl> function_def_sentry(std::ref(this->_function_definitions));
@@ -1687,9 +1741,7 @@ compile_command::empty() const noexcept
     return this->_commands.empty();
 }
 
-void parse_file(CXIndex index,
-                const std::string & file,
-                mg::Client & client)
+void parse_file(CXIndex index, const std::string & file, mg::Client & client)
 {
     ngclang::translation_unit_t unit = 
         clang_parseTranslationUnit(
@@ -1707,7 +1759,10 @@ void parse_file(CXIndex index,
     clang_visitChildren(cursor, &ast_visitor::graph, &visitor);
 }
 
-void parse_compile_command(CXIndex index, CXCompileCommand cx_compile_command, mg::Client & client)
+void parse_compile_command(CXIndex index,
+                           CXCompileCommand cx_compile_command,
+                           mg::Client & client,
+                           const ast_visitor_filter & filter)
 {
     compile_command commands (cx_compile_command);
     ngclang::translation_unit_t unit;
@@ -1730,7 +1785,7 @@ void parse_compile_command(CXIndex index, CXCompileCommand cx_compile_command, m
 
     CXCursor cursor = clang_getTranslationUnitCursor(unit.get());
 
-    ast_visitor visitor(std::ref(client));
+    ast_visitor visitor(std::ref(client), std::ref(filter));
     clang_visitChildren(cursor, &ast_visitor::graph, &visitor);
 }
 
@@ -1745,7 +1800,7 @@ int main(int argc, char ** argv)
         {0,0,0,0}
     };
 
-    std::vector<std::filesystem::path> src_dirs;
+    ast_visitor_filter filter;
     int option_index;
     for(;;)
     {
@@ -1774,12 +1829,12 @@ int main(int argc, char ** argv)
             }
             case 's':
             {
-                src_dirs.push_back(optarg);
+                filter.push_back_src_dir(optarg);
                 continue;
             }
             case 0:
             {
-                src_dirs.push_back(optarg);
+                filter.push_back_src_dir(optarg);
                 continue;
             }
             case -1:
@@ -1886,20 +1941,16 @@ int main(int argc, char ** argv)
                 clang_CompileCommands_getCommand(compile_commands.get(), i);
 
             const std::filesystem::path file_path(ngclang::to_string(clang_CompileCommand_getFilename(compile_command)));
-            std::filesystem::path src_dir = file_path;
-            src_dir.remove_filename();
-
-            auto is_src_dir = [&src_dir] (const std::filesystem::path & p) {return std::filesystem::equivalent(src_dir, p);};
-            if (!src_dirs.empty() && std::find_if(src_dirs.cbegin(), src_dirs.cend(), is_src_dir) == src_dirs.cend())
+            if (!filter.is_src_dir(file_path))
             {
-                // src-dirs specified and the compile command path
-                // isn't in one of the src dirs, so skip parsing
+                // --src-dirs specified and the file to parse isn't in
+                // a specfied source directory, so skip parsing
                 continue;
             }
 
             std::cout << file_path << std::endl;
 
-            parse_compile_command(index.get(), compile_command, *client);
+            parse_compile_command(index.get(), compile_command, *client, filter);
         }
     }
 
