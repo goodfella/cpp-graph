@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <functional>
 #include <getopt.h>
+#include "help.hpp"
 #include <iostream>
 #include <memory>
 #include "ngclang.hpp"
@@ -1824,7 +1825,7 @@ int main(int argc, char ** argv)
             }
             case 'h':
             {
-                std::cerr << "cpp-graph -d <build-dir> | -f <file-to-parse> [-p]" << std::endl;
+                std::cerr << help_text << std::endl;
                 return 0;
             }
             case 's':

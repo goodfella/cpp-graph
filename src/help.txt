@@ -1,0 +1,4 @@
+usage: cpp-graph -d <build-dir> [<options>]
+
+       -s, --src-dir <src-dir> restrict parsing to files in <src-dir>
+       -t, --src-tree <src-tree> restrict parsing to files underneath <src-tree>

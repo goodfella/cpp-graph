@@ -19,9 +19,13 @@ target_include_directories(ngclang
   PRIVATE
   /usr/lib/llvm-14/include)
 
+file(READ src/help.txt HELP_TEXT)
+configure_file(src/help.cpp.in src/generated/help.cpp @ONLY)
+
 add_executable(cpp-graph
   src/cpp-graph.cpp
-  src/statement_executor.cpp)
+  src/statement_executor.cpp
+  src/generated/help.cpp)
 
 target_compile_options(cpp-graph
   PRIVATE

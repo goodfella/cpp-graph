@@ -1,0 +1,3 @@
+char const * help_text = R"(
+@HELP_TEXT@
+)";
