@@ -521,6 +521,11 @@ class ast_visitor
                       CXCursor parent_cursor);
 
     bool
+    graph_destructor(stack_sentry<function_decl> & dtor_def_sentry,
+                      CXCursor cursor,
+                      CXCursor parent_cursor);
+
+    bool
     graph_member_ref_expr(CXCursor cursor, CXCursor parent_cursor);
 
     bool
@@ -654,6 +659,13 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         case CXCursor_Constructor:
         {
             if (!this->graph_constructor(function_def_sentry, cursor, parent_cursor))
+            {
+                return CXChildVisit_Break;
+            }
+        }
+        case CXCursor_Destructor:
+        {
+            if (!this->graph_destructor(function_def_sentry, cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -1566,6 +1578,154 @@ ast_visitor::graph_constructor(stack_sentry<function_decl> & function_def_sentry
                    << "ctor_d.column = $column and "
                    << "ctor.universal_symbol_reference = $usr "
                    << "create (ctor_d)-[:DECLARES]->(ctor)";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+bool
+ast_visitor::graph_destructor(stack_sentry<function_decl> & function_def_sentry,
+                              CXCursor cursor,
+                              CXCursor parent_cursor)
+{
+    const cursor_location cursor_loc = cursor_location(cursor);
+    const std::string cursor_display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+    const std::string cursor_usr = ngclang::to_string(cursor, &clang_getCursorUSR);
+    const std::string parent_cursor_usr = ngclang::to_string(parent_cursor, &clang_getCursorUSR);
+
+    if (!this->node_exists_by_usr("Destructor", cursor_usr))
+    {
+        {
+            // Create Destructor Node
+            mg::Map query_params(2);
+            query_params.Insert("display_name", mg::Value(cursor_display_name));
+            query_params.Insert("universal_symbol_reference", mg::Value(cursor_usr));
+
+            std::stringstream ss;
+            ss << "create(:Destructor {"
+               << "name: $display_name,"
+               << "universal_symbol_reference: $universal_symbol_reference})";
+
+            ngmg::statement_executor executor(std::ref(*this->_mgclient));
+            if (!executor.execute(ss.str(), query_params.AsConstMap()))
+            {
+                return false;
+            }
+        }
+
+        {
+            // Class Relationship
+            mg::Map query_params(2);
+            query_params.Insert("c_usr", mg::Value(parent_cursor_usr));
+            query_params.Insert("dtor_usr", mg::Value(cursor_usr));
+
+            std::stringstream ss;
+            ss << "match (dtor:Destructor), (c:Class) "
+               << "where "
+               << "dtor.universal_symbol_reference = $dtor_usr and "
+               << "c.universal_symbol_reference = $c_usr "
+               << "create (c)-[:HAS]->(dtor)";
+
+            ngmg::statement_executor executor(std::ref(*this->_mgclient));
+            if (!executor.execute(ss.str(), query_params.AsConstMap()))
+            {
+                return false;
+            }
+        }
+    }
+
+    const unsigned is_definition = clang_isCursorDefinition(cursor);
+    if (is_definition)
+    {
+        function_decl function_def {cursor};
+        function_def_sentry.push(function_def);
+        if (!this->node_exists_by_usr("DestructorDefinition", cursor_usr))
+        {
+            {
+                const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+
+                std::stringstream ss;
+                ss << "create(:DestructorDefinition {"
+                   << "universal_symbol_reference: " << "'" << cursor_usr << "',"
+                   << "file: " << "'" << cursor_loc.file() << "',"
+                   << "line: " << cursor_loc.line() << ","
+                   << "column: " << cursor_loc.column() << ','
+                   << "name: " << "'" << display_name << "'"
+                   << "})";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str()))
+                {
+                    return false;
+                }
+            }
+
+            {
+                mg::Map query_params(1);
+                query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+
+                std::stringstream ss;
+                ss << "match(dtor:Destructor), (dtor_d:DestructorDefinition) where"
+                   << " dtor.universal_symbol_reference = $universal_symbol_reference"
+                   << " and dtor_d.universal_symbol_reference = $universal_symbol_reference"
+                   << " create (dtor_d)-[:DEFINES]->(dtor)";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    else
+    {
+        if (!this->node_exists_by_location("DestructorDeclaration", cursor_loc))
+        {
+            {
+                mg::Map query_params(4);
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value((int) cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("name", mg::Value(cursor_display_name));
+
+                std::stringstream ss;
+                ss << "create(:DestructorDeclaration {"
+                   << "name: $name,"
+                   << "file: $file,"
+                   << "line: $line,"
+                   << "column: $column})";
+
+                ngmg::statement_executor executor(std::ref(*this->_mgclient));
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
+                {
+                    return false;
+                }
+            }
+
+            {
+                mg::Map query_params(4);
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value((int) cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("usr", mg::Value(cursor_usr));
+
+                std::stringstream ss;
+                ss << "match (dtor_d:DestructorDeclaration), (dtor:Destructor) "
+                   << "where "
+                   << "dtor_d.file = $file and "
+                   << "dtor_d.line = $line and "
+                   << "dtor_d.column = $column and "
+                   << "dtor.universal_symbol_reference = $usr "
+                   << "create (dtor_d)-[:DECLARES]->(dtor)";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
                 if (!executor.execute(ss.str(), query_params.AsConstMap()))
