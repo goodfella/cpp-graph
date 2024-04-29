@@ -536,6 +536,13 @@ class ast_visitor
                 const cursor_location & location);
 
     bool
+    edge_exists(const std::string & src_label,
+                const ngclang::universal_symbol_reference & src,
+                const std::string & dest_label,
+                const ngclang::universal_symbol_reference & dst,
+                const std::string & edge_label);
+
+    bool
     node_exists_by_location(const std::string & label,
                             const cursor_location & location);
 
@@ -1241,12 +1248,17 @@ bool
 ast_visitor::graph_base_class_specifier(CXCursor cursor, CXCursor parent_cursor)
 {
     CXCursor base_cursor = clang_getCursorReferenced(cursor);
-    const std::string child_usr = ngclang::to_string(parent_cursor, &clang_getCursorUSR);
-    const std::string base_usr = ngclang::to_string(base_cursor, &clang_getCursorUSR);
+    const auto child_usr = ngclang::universal_symbol_reference(parent_cursor);
+    const auto base_usr = ngclang::universal_symbol_reference(base_cursor);
+
+    if(this->edge_exists("Class", child_usr, "Class", base_usr, "INHERITS"))
+    {
+        return true;
+    }
 
     mg::Map query_params(2);
-    query_params.Insert("base_usr", mg::Value(base_usr));
-    query_params.Insert("child_usr", mg::Value(child_usr));
+    query_params.Insert("base_usr", mg::Value(base_usr.string()));
+    query_params.Insert("child_usr", mg::Value(child_usr.string()));
 
     std::stringstream ss;
     ss << "match (c:Class), (b:Class) "
@@ -1833,7 +1845,37 @@ ast_visitor::edge_exists(const std::string & label,
         return false;
     }
 
-    return static_cast<bool>(this->_mgclient->FetchOne());}
+    return static_cast<bool>(this->_mgclient->FetchOne());
+}
+
+bool
+ast_visitor::edge_exists(const std::string & src_label,
+                         const ngclang::universal_symbol_reference & src,
+                         const std::string & dst_label,
+                         const ngclang::universal_symbol_reference & dst,
+                         const std::string & edge_label)
+{
+    // Create namespace to class relationship
+    mg::Map query_params(2);
+    query_params.Insert("src_usr", mg::Value(src.string()));
+    query_params.Insert("dst_usr", mg::Value(dst.string()));
+
+    std::stringstream ss;
+    ss << "match (d:"
+       << dst_label
+       << " {universal_symbol_reference: $dst_usr})<-[:"
+       << edge_label << "]-(s:"
+       << src_label
+       << " {universal_symbol_reference: $src_usr}) return s";
+
+    ngmg::statement_executor executor(std::ref(*this->_mgclient));
+    if (!executor.execute(ss.str(), query_params.AsConstMap()))
+    {
+        throw std::runtime_error("error running: " + ss.str());
+    }
+
+    return static_cast<bool>(this->_mgclient->FetchOne());
+}
 
 bool
 ast_visitor::node_exists_by_location(const std::string & label,

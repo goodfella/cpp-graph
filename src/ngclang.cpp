@@ -3,6 +3,16 @@
 #include "ngclang.hpp"
 #include <string>
 
+ngclang::universal_symbol_reference::universal_symbol_reference(CXCursor cursor):
+    _string(ngclang::to_string(cursor, &clang_getCursorUSR))
+{}
+
+const std::string &
+ngclang::universal_symbol_reference::string() const noexcept
+{
+    return this->_string;
+}
+
 std::string
 ngclang::to_string(CXString cxstring)
 {

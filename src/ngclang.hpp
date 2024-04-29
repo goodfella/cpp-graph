@@ -60,6 +60,23 @@ namespace ngclang
         return this->_object;
     }
 
+
+    class universal_symbol_reference
+    {
+        public:
+
+        explicit
+        universal_symbol_reference(CXCursor cursor);
+
+        const std::string &
+        string() const noexcept;
+
+        private:
+
+        std::string _string;
+    };
+
+
     struct dispose_string
     {
         void
