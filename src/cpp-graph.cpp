@@ -465,7 +465,7 @@ class ast_visitor
 
     explicit
     ast_visitor(std::reference_wrapper<mg::Client> client,
-                std::optional<std::reference_wrapper<const ast_visitor_filter>> filter = std::optional<std::reference_wrapper<const ast_visitor_filter>>{});
+                std::optional<std::reference_wrapper<const ast_visitor_filter>> filter = std::nullopt);
 
     static
     CXChildVisitResult
