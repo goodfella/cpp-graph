@@ -1,6 +1,6 @@
 usage: cpp-graph -d <build-dir> [Filter Options]
 
-       -b <build-dir> The directory that contains the compile_commands.json file
+       -d <build-dir> The directory that contains the compile_commands.json file
 
        Filter Options:
 
