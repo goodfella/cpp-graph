@@ -2030,7 +2030,7 @@ void parse_compile_command(CXIndex index,
             commands.size(),
             nullptr,
             0,
-            CXTranslationUnit_None,
+            CXTranslationUnit_KeepGoing | CXTranslationUnit_IgnoreNonErrorsFromIncludedFiles,
             &unit.get());
 
     if (error != CXError_Success)
