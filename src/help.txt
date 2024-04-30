@@ -1,4 +1,8 @@
-usage: cpp-graph -d <build-dir> [<options>]
+usage: cpp-graph -d <build-dir> [Filter Options]
+
+       -b <build-dir> The directory that contains the compile_commands.json file
+
+       Filter Options:
 
        -s, --src-dir <src-dir> restrict parsing to files in <src-dir>
        -t, --src-tree <src-tree> restrict parsing to files underneath <src-tree>
