@@ -2215,7 +2215,7 @@ int main(int argc, char ** argv)
                 continue;
             }
 
-            std::cout << file_path << std::endl;
+            std::cout << "parsing: " << file_path << std::endl;
 
             parse_compile_command(index.get(), compile_command, *client, filter);
         }
