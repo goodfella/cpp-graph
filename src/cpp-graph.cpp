@@ -475,14 +475,14 @@ ast_visitor_filter::push_back_src_file(const std::filesystem::path & file)
 bool
 ast_visitor_filter::parse_file(const std::filesystem::path & file) const
 {
-    bool match_found = false;
+    std::optional<bool> match_found;
 
     if (!this->_src_files.empty())
     {
         match_found = this->is_src_file(file);
     }
 
-    if (match_found)
+    if (match_found && *match_found)
     {
         return true;
     }
@@ -492,7 +492,7 @@ ast_visitor_filter::parse_file(const std::filesystem::path & file) const
         match_found = this->is_src_dir(file);
     }
 
-    if (match_found)
+    if (match_found && *match_found)
     {
         return true;
     }
@@ -504,10 +504,11 @@ ast_visitor_filter::parse_file(const std::filesystem::path & file) const
 
     if (match_found)
     {
-        return true;
+        return *match_found;
     }
 
-    return false;
+    // no filter was given, so all files should be parsed
+    return true;
 }
 
 class ast_visitor_policy
