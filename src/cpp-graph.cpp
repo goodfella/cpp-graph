@@ -142,8 +142,8 @@ cursor_location::column() const noexcept
     return this->_column;
 }
 
-CXChildVisitResult
-printing_visitor(CXCursor c, CXCursor parent, CXClientData client_data)
+void
+print_cursor(CXCursor c, CXCursor parent, unsigned int level)
 {
     const CXCursorKind cursor_kind = clang_getCursorKind(c);
     const CXType cursor_type = clang_getCursorType(c);
@@ -163,7 +163,6 @@ printing_visitor(CXCursor c, CXCursor parent, CXClientData client_data)
                           &column,
                           nullptr);
 
-    const unsigned int level = *(reinterpret_cast<unsigned int * const>(client_data));
     const std::string cursor_indent = std::string(level, '-') + '>';
     const std::string cursor_property_indent = std::string(level + 1, ' ') + '|';
     std::cout << cursor_indent
@@ -183,13 +182,29 @@ printing_visitor(CXCursor c, CXCursor parent, CXClientData client_data)
               << cursor_property_indent << " column "
               << '(' << column << ')' << std::endl;
 
+
     if (!clang_Cursor_isNull(ref))
     {
-        std::cout << cursor_property_indent << " ref "
+        const std::string ref_property_indent = "  " + cursor_property_indent;
+        const std::string ref_usr = ngclang::to_string(ref, &clang_getCursorUSR);
+        std::cout << cursor_property_indent << " ref " << std::endl;
+        std::cout << ref_property_indent << " type "
                   << '(' << clang_getTypeSpelling(clang_getCursorType(ref)) << ')' << std::endl;
+        std::cout << ref_property_indent << " usr "
+                  << '(' << ref_usr << ')' << std::endl;
     }
+    else
+    {
+        std::cout << cursor_property_indent << " ref ";
+        std::cout << '(' << "null" << ')' << std::endl;
+    }
+}
 
-
+CXChildVisitResult
+printing_visitor(CXCursor c, CXCursor parent, CXClientData client_data)
+{
+    const unsigned int level = *(reinterpret_cast<unsigned int * const>(client_data));
+    print_cursor(c, parent, level);
     unsigned int next_level = level + 1;
     clang_visitChildren(c, &printing_visitor, &next_level);
     return CXChildVisit_Continue;
@@ -381,6 +396,9 @@ class ast_visitor_filter
     in_src_tree(const std::filesystem::path & path) const;
 
     bool
+    is_src_file(const std::filesystem::path & path) const noexcept;
+
+    bool
     parse_file(const std::filesystem::path & file) const;
 
     void
@@ -389,25 +407,30 @@ class ast_visitor_filter
     void
     push_back_src_tree(const std::filesystem::path & src_tree);
 
+    void
+    push_back_src_file(const std::filesystem::path & src_file);
+
     private:
     std::vector<std::filesystem::path> _src_dirs;
     std::vector<std::filesystem::path> _src_trees;
+    std::vector<std::filesystem::path> _src_files;
 };
 
 bool
 ast_visitor_filter::is_src_dir(const std::filesystem::path & file) const
 {
-    if (this->_src_dirs.empty())
-    {
-        // no source dir filter, so all sources are valid
-        return true;
-    }
-
     std::filesystem::path src_dir = file;
     src_dir.remove_filename();
 
     auto is_src_dir = [&src_dir] (const std::filesystem::path & p) {return std::filesystem::equivalent(src_dir, p);};
     return (std::find_if(this->_src_dirs.cbegin(), this->_src_dirs.cend(), is_src_dir) != this->_src_dirs.cend());
+}
+
+bool
+ast_visitor_filter::is_src_file(const std::filesystem::path & file) const noexcept
+{
+    auto is_src_file = [&file] (const std::filesystem::path & p) {return std::filesystem::equivalent(file, p);};
+    return (std::find_if(this->_src_files.cbegin(), this->_src_files.cend(), is_src_file) != this->_src_files.cend());
 }
 
 bool
@@ -443,20 +466,94 @@ ast_visitor_filter::push_back_src_tree(const std::filesystem::path & src_tree)
     this->_src_trees.push_back(src_tree);
 }
 
+void
+ast_visitor_filter::push_back_src_file(const std::filesystem::path & file)
+{
+    this->_src_files.push_back(file);
+}
+
 bool
 ast_visitor_filter::parse_file(const std::filesystem::path & file) const
 {
-    if (!this->_src_trees.empty())
+    bool match_found = false;
+
+    if (!this->_src_files.empty())
     {
-        return this->in_src_tree(file);
+        match_found = this->is_src_file(file);
     }
 
-    if (this->is_src_dir(file))
+    if (match_found)
+    {
+        return true;
+    }
+
+    if (!this->_src_dirs.empty())
+    {
+        match_found = this->is_src_dir(file);
+    }
+
+    if (match_found)
+    {
+        return true;
+    }
+
+    if (!this->_src_trees.empty())
+    {
+        match_found = this->in_src_tree(file);
+    }
+
+    if (match_found)
     {
         return true;
     }
 
     return false;
+}
+
+class ast_visitor_policy
+{
+    public:
+
+    const ast_visitor_filter &
+    filter() const noexcept;
+
+    ast_visitor_filter &
+    filter() noexcept;
+
+    bool
+    print_ast() const noexcept;
+
+    void
+    print_ast(bool print) noexcept;
+
+    private:
+
+    ast_visitor_filter _filter;
+    bool _print_ast = false;
+};
+
+const ast_visitor_filter &
+ast_visitor_policy::filter() const noexcept
+{
+    return this->_filter;
+}
+
+ast_visitor_filter &
+ast_visitor_policy::filter() noexcept
+{
+    return this->_filter;
+}
+
+bool
+ast_visitor_policy::print_ast() const noexcept
+{
+    return this->_print_ast;
+}
+
+void
+ast_visitor_policy::print_ast(bool print) noexcept
+{
+    this->_print_ast = print;
 }
 
 class ast_visitor
@@ -465,7 +562,7 @@ class ast_visitor
 
     explicit
     ast_visitor(std::reference_wrapper<mg::Client> client,
-                std::optional<std::reference_wrapper<const ast_visitor_filter>> filter = std::nullopt);
+                std::optional<std::reference_wrapper<const ast_visitor_policy>> policy = std::nullopt);
 
     static
     CXChildVisitResult
@@ -492,9 +589,6 @@ class ast_visitor
     graph_function_decl(stack_sentry<function_decl> & function_def_sentry,
                         CXCursor cursor,
                         CXCursor parent_cursor);
-
-    bool
-    graph_decl_ref_expr(CXCursor cursor, CXCursor parent_cursor);
 
     bool
     graph_function_call(CXCursor cursor, CXCursor parent_cursor);
@@ -553,18 +647,19 @@ class ast_visitor
 
     std::vector<namespace_decl> _namespaces;
     mg::Client * const _mgclient = nullptr;
-    ast_visitor_filter const * _filter = nullptr;
+    ast_visitor_policy const * _policy = nullptr;
     std::vector<function_decl> _function_definitions;
     std::vector<cursor_location> _call_expressions;
+    unsigned int _level = 0;
 };
 
 ast_visitor::ast_visitor(std::reference_wrapper<mg::Client> mgclient,
-                         std::optional<std::reference_wrapper<const ast_visitor_filter>> filter):
+                         std::optional<std::reference_wrapper<const ast_visitor_policy>> policy):
     _mgclient(&mgclient.get())
 {
-    if (filter)
+    if (policy)
     {
-        this->_filter = &filter->get();
+        this->_policy = &policy->get();
     }
 }
 
@@ -595,14 +690,17 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         return CXChildVisit_Continue;
     }
 
-    //print_cursor(cursor, parent_cursor, this->_level);
-
-    if (this->_filter)
+    if (this->_policy)
     {
         const cursor_location cursor_loc = cursor_location(cursor);
-        if (!this->_filter->parse_file(cursor_loc.file()))
+        if (!this->_policy->filter().parse_file(cursor_loc.file()))
         {
             return CXChildVisit_Continue;
+        }
+
+        if (this->_policy->print_ast())
+        {
+            ::print_cursor(cursor, parent_cursor, this->_level);
         }
     }
 
@@ -634,11 +732,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         case CXCursor_CallExpr:
         {
             call_expr_sentry.push(cursor_location(cursor));
-            break;
-        }
-        case CXCursor_DeclRefExpr:
-        {
-            if (!this->graph_decl_ref_expr(cursor, parent_cursor))
+            if (!this->graph_function_call(cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -701,7 +795,9 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
     }
 
+    ++this->_level;
     clang_visitChildren(cursor, &ast_visitor::graph, this);
+    --this->_level;
     return CXChildVisit_Continue;
 }
 
@@ -896,12 +992,11 @@ ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sent
         function_decl function_def {cursor};
         function_def_sentry.push(function_def);
 
-        if (!this->node_exists_by_usr("FunctionDefinition", function_def.universal_symbol_reference()))
+        if (!this->node_exists_by_location("FunctionDefinition", cursor_loc))
         {
             {
                 const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
-                mg::Map query_params(5);
-                query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+                mg::Map query_params(4);
                 query_params.Insert("file", mg::Value(cursor_loc.file()));
                 query_params.Insert("line", mg::Value(cursor_loc.line()));
                 query_params.Insert("column", mg::Value(cursor_loc.column()));
@@ -909,7 +1004,6 @@ ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sent
 
                 std::stringstream ss;
                 ss << "create(:FunctionDefinition {"
-                   << "universal_symbol_reference: $universal_symbol_reference,"
                    << "file: $file,"
                    << "line: $line,"
                    << "column: $column,"
@@ -924,13 +1018,18 @@ ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sent
             }
 
             {
-                mg::Map query_params(1);
+                mg::Map query_params(4);
                 query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
 
                 std::stringstream ss;
                 ss << "match(f:Function), (fd:FunctionDefinition) where"
                    << " f.universal_symbol_reference = $universal_symbol_reference"
-                   << " and fd.universal_symbol_reference = $universal_symbol_reference"
+                   << " and fd.file = $file"
+                   << " and fd.line = $line"
+                   << " and fd.column = $column"
                    << " create (fd)-[:DEFINES]->(f)";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
@@ -1041,30 +1140,23 @@ ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sent
 }
 
 bool
-ast_visitor::graph_decl_ref_expr(CXCursor cursor, CXCursor parent_cursor)
-{
-    if (! this->_function_definitions.empty() &&
-        ! this->_call_expressions.empty())
-    {
-        // This is a function call from a function definition
-        return this->graph_function_call(cursor, parent_cursor);
-    }
-
-    return true;
-}
-
-bool
 ast_visitor::graph_function_call(CXCursor cursor, CXCursor parent)
 {
+    if (this->_function_definitions.empty())
+    {
+        return true;
+    }
+
     const cursor_location cursor_loc = cursor_location(cursor);
     CXCursor callee_cursor = clang_getCursorReferenced(cursor);
 
+    if (clang_Cursor_isNull(callee_cursor))
+    {
+        return true;
+    }
+
     const std::string callee_usr = ngclang::to_string(callee_cursor, &clang_getCursorUSR);
-    const std::string caller_usr = this->_function_definitions.front().universal_symbol_reference();
-    
-    const std::string caller_label = this->_function_definitions.front().is_member_function() ?
-        "(caller:MemberFunction)" :
-        "(caller:Function)";
+    const std::string caller_usr = this->_function_definitions.back().universal_symbol_reference();
 
     if (this->edge_exists(":CALLS", cursor_loc))
     {
@@ -1079,8 +1171,7 @@ ast_visitor::graph_function_call(CXCursor cursor, CXCursor parent)
     query_params.Insert("column", mg::Value(cursor_loc.column()));
 
     std::stringstream ss;
-    ss << "match (callee:Function),"
-       << caller_label
+    ss << "match (callee), (caller)"
        << " where "
        << " caller.universal_symbol_reference = $caller_usr"
        << " and callee.universal_symbol_reference = $callee_usr"
@@ -1361,36 +1452,45 @@ ast_visitor::graph_member_function_decl(stack_sentry<function_decl> & function_d
     {
         function_decl function_def {cursor};
         function_def_sentry.push(function_def);
-        if (!this->node_exists_by_usr("MemberFunctionDefinition", cursor_usr))
+        if (!this->node_exists_by_location("MemberFunctionDefinition", cursor_loc))
         {
             {
                 const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+                mg::Map query_params(4);
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("name", mg::Value(display_name));
 
                 std::stringstream ss;
                 ss << "create(:MemberFunctionDefinition {"
-                   << "universal_symbol_reference: " << "'" << cursor_usr << "',"
-                   << "file: " << "'" << cursor_loc.file() << "',"
-                   << "line: " << cursor_loc.line() << ","
-                   << "column: " << cursor_loc.column() << ','
-                   << "name: " << "'" << display_name << "'"
+                   << "file: $file,"
+                   << "line: $line,"
+                   << "column: $column,"
+                   << "name: $name"
                    << "})";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                if (!executor.execute(ss.str()))
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
                 {
                     return false;
                 }
             }
 
             {
-                mg::Map query_params(1);
+                mg::Map query_params(4);
                 query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
 
                 std::stringstream ss;
-                ss << "match(mf:MemberFunction), (mfd:MemberFunctionDefinition) where"
-                   << " mf.universal_symbol_reference = $universal_symbol_reference"
-                   << " and mfd.universal_symbol_reference = $universal_symbol_reference"
-                   << " create (mfd)-[:DEFINES]->(mf)";
+                ss << "match(f:MemberFunction), (fd:MemberFunctionDefinition) where"
+                   << " f.universal_symbol_reference = $universal_symbol_reference"
+                   << " and fd.file = $file"
+                   << " and fd.line = $line"
+                   << " and fd.column = $column"
+                   << " create (fd)-[:DEFINES]->(f)";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
                 if (!executor.execute(ss.str(), query_params.AsConstMap()))
@@ -1511,36 +1611,45 @@ ast_visitor::graph_constructor(stack_sentry<function_decl> & function_def_sentry
     {
         function_decl function_def {cursor};
         function_def_sentry.push(function_def);
-        if (!this->node_exists_by_usr("ConstructorDefinition", cursor_usr))
+        if (!this->node_exists_by_location("ConstructorDefinition", cursor_loc))
         {
             {
                 const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+                mg::Map query_params(4);
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("name", mg::Value(display_name));
 
                 std::stringstream ss;
                 ss << "create(:ConstructorDefinition {"
-                   << "universal_symbol_reference: " << "'" << cursor_usr << "',"
-                   << "file: " << "'" << cursor_loc.file() << "',"
-                   << "line: " << cursor_loc.line() << ","
-                   << "column: " << cursor_loc.column() << ','
-                   << "name: " << "'" << display_name << "'"
+                   << "file: $file,"
+                   << "line: $line,"
+                   << "column: $column,"
+                   << "name: $name"
                    << "})";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                if (!executor.execute(ss.str()))
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
                 {
                     return false;
                 }
             }
 
             {
-                mg::Map query_params(1);
+                mg::Map query_params(4);
                 query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
 
                 std::stringstream ss;
-                ss << "match(ctor:Constructor), (ctor_d:ConstructorDefinition) where"
-                   << " ctor.universal_symbol_reference = $universal_symbol_reference"
-                   << " and ctor_d.universal_symbol_reference = $universal_symbol_reference"
-                   << " create (ctor_d)-[:DEFINES]->(ctor)";
+                ss << "match(f:Constructor), (fd:ConstructorDefinition) where"
+                   << " f.universal_symbol_reference = $universal_symbol_reference"
+                   << " and fd.file = $file"
+                   << " and fd.line = $line"
+                   << " and fd.column = $column"
+                   << " create (fd)-[:DEFINES]->(f)";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
                 if (!executor.execute(ss.str(), query_params.AsConstMap()))
@@ -1659,36 +1768,45 @@ ast_visitor::graph_destructor(stack_sentry<function_decl> & function_def_sentry,
     {
         function_decl function_def {cursor};
         function_def_sentry.push(function_def);
-        if (!this->node_exists_by_usr("DestructorDefinition", cursor_usr))
+        if (!this->node_exists_by_location("DestructorDefinition", cursor_loc))
         {
             {
                 const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
+                mg::Map query_params(4);
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
+                query_params.Insert("name", mg::Value(display_name));
 
                 std::stringstream ss;
                 ss << "create(:DestructorDefinition {"
-                   << "universal_symbol_reference: " << "'" << cursor_usr << "',"
-                   << "file: " << "'" << cursor_loc.file() << "',"
-                   << "line: " << cursor_loc.line() << ","
-                   << "column: " << cursor_loc.column() << ','
-                   << "name: " << "'" << display_name << "'"
+                   << "file: $file,"
+                   << "line: $line,"
+                   << "column: $column,"
+                   << "name: $name"
                    << "})";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                if (!executor.execute(ss.str()))
+                if (!executor.execute(ss.str(), query_params.AsConstMap()))
                 {
                     return false;
                 }
             }
 
             {
-                mg::Map query_params(1);
+                mg::Map query_params(4);
                 query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
+                query_params.Insert("file", mg::Value(cursor_loc.file()));
+                query_params.Insert("line", mg::Value(cursor_loc.line()));
+                query_params.Insert("column", mg::Value(cursor_loc.column()));
 
                 std::stringstream ss;
-                ss << "match(dtor:Destructor), (dtor_d:DestructorDefinition) where"
-                   << " dtor.universal_symbol_reference = $universal_symbol_reference"
-                   << " and dtor_d.universal_symbol_reference = $universal_symbol_reference"
-                   << " create (dtor_d)-[:DEFINES]->(dtor)";
+                ss << "match(f:Destructor), (fd:DestructorDefinition) where"
+                   << " f.universal_symbol_reference = $universal_symbol_reference"
+                   << " and fd.file = $file"
+                   << " and fd.line = $line"
+                   << " and fd.column = $column"
+                   << " create (fd)-[:DEFINES]->(f)";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
                 if (!executor.execute(ss.str(), query_params.AsConstMap()))
@@ -1799,6 +1917,7 @@ ast_visitor::graph_member_function_call(CXCursor cursor, CXCursor parent_cursor)
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
     if (!executor.execute(ss.str(), query_params.AsConstMap()))
     {
+        std::cout << "error !!!\n";
         return false;
     }
 
@@ -2018,7 +2137,7 @@ void parse_file(CXIndex index, const std::string & file, mg::Client & client)
 void parse_compile_command(CXIndex index,
                            CXCompileCommand cx_compile_command,
                            mg::Client & client,
-                           const ast_visitor_filter & filter)
+                           const ast_visitor_policy & policy)
 {
     compile_command commands (cx_compile_command);
     ngclang::translation_unit_t unit;
@@ -2041,7 +2160,7 @@ void parse_compile_command(CXIndex index,
 
     CXCursor cursor = clang_getTranslationUnitCursor(unit.get());
 
-    ast_visitor visitor(std::ref(client), std::ref(filter));
+    ast_visitor visitor(std::ref(client), std::ref(policy));
     clang_visitChildren(cursor, &ast_visitor::graph, &visitor);
 }
 
@@ -2049,15 +2168,15 @@ int main(int argc, char ** argv)
 {
     std::string build_dir;
     std::string file_to_parse;
-    bool print_ast = false;
 
     static const struct option long_options [] = {
         {"src-dir", required_argument, nullptr, 0},
         {"src-tree", required_argument, nullptr, 1},
+        {"src-file", required_argument, nullptr, 2},
         {0,0,0,0}
     };
 
-    ast_visitor_filter filter;
+    ast_visitor_policy policy;
     int option_index;
     for(;;)
     {
@@ -2076,7 +2195,7 @@ int main(int argc, char ** argv)
             }
             case 'p':
             {
-                print_ast = true;
+                policy.print_ast(true);
                 continue;
             }
             case 'h':
@@ -2086,22 +2205,27 @@ int main(int argc, char ** argv)
             }
             case 's':
             {
-                filter.push_back_src_dir(optarg);
+                policy.filter().push_back_src_dir(optarg);
                 continue;
             }
             case 0:
             {
-                filter.push_back_src_dir(optarg);
+                policy.filter().push_back_src_dir(optarg);
                 continue;
             }
             case 't':
             {
-                filter.push_back_src_tree(optarg);
+                policy.filter().push_back_src_tree(optarg);
                 continue;
             }
             case 1:
             {
-                filter.push_back_src_tree(optarg);
+                policy.filter().push_back_src_tree(optarg);
+                continue;
+            }
+            case 2:
+            {
+                policy.filter().push_back_src_file(optarg);
                 continue;
             }
             case -1:
@@ -2113,31 +2237,6 @@ int main(int argc, char ** argv)
         break;
     }
     
-    if (print_ast)
-    {
-        if (file_to_parse.empty())
-        {
-            std::cerr << "missing file to parse\n";
-            return 2;
-        }
-
-        CXIndex index = clang_createIndex(0,0);
-        CXTranslationUnit unit = clang_parseTranslationUnit(
-            index, // clang index
-            file_to_parse.c_str(), // path
-            nullptr, // command line args
-            0, // number of command line args
-            nullptr, // clang unsaved files
-            0, // number of unsaved files
-            CXTranslationUnit_None);
-
-        CXCursor cursor = clang_getTranslationUnitCursor(unit);
-
-        unsigned int level = 1;
-        clang_visitChildren(cursor, &printing_visitor, &level);
-        return 0;
-    }
-
     if (file_to_parse.empty() && build_dir.empty())
     {
         std::cerr << "missing file or build directory to parse\n";
@@ -2208,7 +2307,7 @@ int main(int argc, char ** argv)
                 clang_CompileCommands_getCommand(compile_commands.get(), i);
 
             const std::filesystem::path file_path(ngclang::to_string(clang_CompileCommand_getFilename(compile_command)));
-            if (!filter.parse_file(file_path))
+            if (!policy.filter().parse_file(file_path))
             {
                 // The file does not match the specified filter so
                 // don't parse.
@@ -2217,7 +2316,7 @@ int main(int argc, char ** argv)
 
             std::cout << "parsing: " << file_path << std::endl;
 
-            parse_compile_command(index.get(), compile_command, *client, filter);
+            parse_compile_command(index.get(), compile_command, *client, policy);
         }
     }
 
