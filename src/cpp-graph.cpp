@@ -719,6 +719,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
             {
                 return CXChildVisit_Break;
             }
+
             break;
         }
         case CXCursor_FunctionDecl:
@@ -764,6 +765,8 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
             {
                 return CXChildVisit_Break;
             }
+
+            break;
         }
         case CXCursor_Destructor:
         {
@@ -771,6 +774,8 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
             {
                 return CXChildVisit_Break;
             }
+
+            break;
         }
         case CXCursor_CXXBaseSpecifier:
         {
