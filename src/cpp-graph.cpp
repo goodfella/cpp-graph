@@ -557,6 +557,90 @@ ast_visitor_policy::print_ast(bool print) noexcept
     this->_print_ast = print;
 }
 
+void
+function_labels(CXCursor cursor,
+                std::string * label,
+                std::string * decl_label,
+                std::string * def_label)
+{
+    const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
+    switch (cursor_kind)
+    {
+        case CXCursor_FunctionDecl:
+        {
+            if (label)
+            {
+                *label = "Function";
+            }
+            if (decl_label)
+            {
+                *decl_label = "FunctionDeclaration";
+            }
+            if (def_label)
+            {
+                *def_label = "FunctionDefinition";
+            }
+
+            break;
+        }
+        case CXCursor_CXXMethod:
+        {
+            if (label)
+            {
+                *label = "MemberFunction";
+            }
+            if (decl_label)
+            {
+                *decl_label = "MemberFunctionDeclaration";
+            }
+            if (def_label)
+            {
+                *def_label = "MemberFunctionDefinition";
+            }
+
+            break;
+        }
+        case CXCursor_Constructor:
+        {
+            if (label)
+            {
+                *label = "Constructor";
+            }
+            if (decl_label)
+            {
+                *decl_label = "ConstructorDeclaration";
+            }
+            if (def_label)
+            {
+                *def_label = "ConstructorDefinition";
+            }
+
+            break;
+        }
+        case CXCursor_Destructor:
+        {
+            if (label)
+            {
+                *label = "Destructor";
+            }
+            if (decl_label)
+            {
+                *decl_label = "DestructorDeclaration";
+            }
+            if (def_label)
+            {
+                *def_label = "DestructorDefinition";
+            }
+
+            break;
+        }
+        default:
+        {
+            throw std::logic_error("not a function");
+        }
+    };
+}
+
 class ast_visitor
 {
     public:
@@ -580,6 +664,10 @@ class ast_visitor
     CXChildVisitResult
     graph (CXCursor cursor,
            CXCursor parent_cursor);
+
+    bool
+    graph_parent(CXCursor cursor,
+                 CXCursor parent_cursor);
 
     bool
     graph_namespace(stack_sentry<namespace_decl> & sentry,
@@ -624,10 +712,7 @@ class ast_visitor
     graph_function(CXCursor cursor,
                    CXCursor parent_cursor,
                    stack_sentry<function_decl> & function_def_sentry,
-                   bool & created,
-                   const std::string & function_label,
-                   const std::string & function_dec_label,
-                   const std::string & function_def_label);
+                   bool & created);
 
     bool
     edge_exists(const std::string & label,
@@ -639,6 +724,11 @@ class ast_visitor
                 const std::string & dest_label,
                 const ngclang::universal_symbol_reference & dst,
                 const std::string & edge_label);
+
+    bool
+    edge_exists(const ngclang::universal_symbol_reference & src,
+                const std::string & edge_label,
+                const ngclang::universal_symbol_reference & dst);
 
     bool
     node_exists_by_location(const std::string & label,
@@ -802,6 +892,37 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 }
 
 bool
+ast_visitor::graph_parent(CXCursor cursor, CXCursor parent_cursor)
+{
+    const auto cursor_usr = ngclang::universal_symbol_reference(cursor);
+    const auto parent_usr = ngclang::universal_symbol_reference(parent_cursor);
+    const cursor_location parent_loc = cursor_location(parent_cursor);
+
+    if (this->edge_exists(parent_usr, "HAS", cursor_usr))
+    {
+        return true;
+    }
+
+    mg::Map query_params(2);
+    query_params.Insert("parent_usr", mg::Value(parent_usr.string()));
+    query_params.Insert("child_usr", mg::Value(cursor_usr.string()));
+
+    std::stringstream ss;
+    ss << "match (p), (c) where"
+       << " p.universal_symbol_reference = $parent_usr"
+       << " and c.universal_symbol_reference = $child_usr"
+       << " create (p)-[:HAS]->(c)";
+
+    ngmg::statement_executor executor(std::ref(*this->_mgclient));
+    if (!executor.execute(ss.str(), query_params.AsConstMap()))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool
 ast_visitor::graph_namespace(stack_sentry<namespace_decl> & namespace_sentry, CXCursor cursor, CXCursor parent_cursor)
 {
     const cursor_location cursor_loc = cursor_location(cursor);
@@ -898,64 +1019,20 @@ ast_visitor::graph_namespace(stack_sentry<namespace_decl> & namespace_sentry, CX
         }
     }
 
-    const CXCursorKind parent_kind = clang_getCursorKind(parent_cursor);
-    if (parent_kind == CXCursor_Namespace)
-    {
-        const std::string parent_usr = ngclang::to_string(parent_cursor, &clang_getCursorUSR);
-
-        const cursor_location parent_loc = cursor_location(parent_cursor);
-
-        {
-            mg::Map query_params(2);
-            query_params.Insert("child_usr", mg::Value(usr));
-            query_params.Insert("parent_usr", mg::Value(parent_usr));
-
-            std::stringstream ss;
-            ss << "match (pn:Namespace {universal_symbol_reference: $parent_usr})-[:HAS]->(cn:Namespace {universal_symbol_reference: $child_usr}) return pn";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                throw "wtf";
-                return false;
-            }
-
-            if (static_cast<bool>(this->_mgclient->FetchOne()))
-            {
-                return true;
-            }
-        }
-
-        mg::Map query_params(2);
-        query_params.Insert("parent_usr", mg::Value(parent_usr));
-        query_params.Insert("child_usr", mg::Value(usr));
-
-        std::stringstream ss;
-        ss << "match (pn:Namespace), (cn:Namespace) where"
-           << " pn.universal_symbol_reference = $parent_usr"
-           << " and cn.universal_symbol_reference = $child_usr"
-           << " create (pn)-[:HAS]->(cn)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-    }
-
-    return true;
+    return this->graph_parent(cursor, parent_cursor);
 }
 
 bool
 ast_visitor::graph_function(CXCursor cursor,
                             CXCursor parent_cursor,
                             stack_sentry<function_decl> & function_def_sentry,
-                            bool & created,
-                            const std::string & function_label,
-                            const std::string & function_dec_label,
-                            const std::string & function_def_label)
+                            bool & created)
 {
     created = false;
+    std::string function_label;
+    std::string function_dec_label;
+    std::string function_def_label;
+    function_labels(cursor, &function_label, &function_dec_label, &function_def_label);
 
     const cursor_location cursor_loc = cursor_location(cursor);
     const std::string name = ngclang::to_string(cursor, &clang_getCursorSpelling);
@@ -1098,7 +1175,7 @@ ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sent
                                  CXCursor parent_cursor)
 {
     bool created = false;
-    if (!this->graph_function(cursor, parent_cursor, function_def_sentry, created, "Function", "FunctionDeclaration", "FunctionDefinition"))
+    if (!this->graph_function(cursor, parent_cursor, function_def_sentry, created))
     {
         return false;
     }
@@ -1109,35 +1186,7 @@ ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sent
         return true;
     }
 
-    const CXCursorKind parent_kind = clang_getCursorKind(parent_cursor);
-    if (parent_kind == CXCursor_Namespace)
-    {
-        const auto usr = ngclang::universal_symbol_reference(cursor);
-        const auto parent_usr = ngclang::universal_symbol_reference(parent_cursor);
-
-        if (this->edge_exists("Namespace", parent_usr, "Function", usr, "HAS"))
-        {
-            return true;
-        }
-
-        mg::Map query_params(2);
-        query_params.Insert("n_usr", mg::Value(parent_usr.string()));
-        query_params.Insert("f_usr", mg::Value(usr.string()));
-
-        std::stringstream ss;
-        ss << "match (n:Namespace), (f:Function) where"
-           << " n.universal_symbol_reference = $n_usr"
-           << " and f.universal_symbol_reference = $f_usr"
-           << " create (n)-[:HAS]->(f)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-    }
-
-    return true;
+    return this->graph_parent(cursor, parent_cursor);
 }
 
 bool
@@ -1287,53 +1336,7 @@ ast_visitor::graph_class_decl(CXCursor cursor, CXCursor parent_cursor)
         }
     }
 
-    const CXCursorKind parent_kind = clang_getCursorKind(parent_cursor);
-    const std::string parent_usr = ngclang::to_string(parent_cursor, &clang_getCursorUSR);
-    if (parent_kind == CXCursor_Namespace)
-    {
-        // Create namespace to class relationship
-        const bool edge_exists = [this, &parent_usr, &usr]() {
-            mg::Map query_params(2);
-            query_params.Insert("ns_usr", mg::Value(parent_usr));
-            query_params.Insert("c_usr", mg::Value(usr));
-
-            std::stringstream ss;
-            ss << "match (c:Class {universal_symbol_reference: $c_usr})<-[:HAS]-(n:Namespace {universal_symbol_reference: $ns_usr}) return n";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                // Relationship allready exists
-                throw std::runtime_error("error running: " + ss.str());
-            }
-
-            return static_cast<bool>(this->_mgclient->FetchOne());
-        }();
-
-        if (edge_exists)
-        {
-            return true;
-        }
-
-        const cursor_location parent_loc = cursor_location(parent_cursor);
-        mg::Map query_params(2);
-        query_params.Insert("n_usr", mg::Value(parent_usr));
-        query_params.Insert("c_usr", mg::Value(usr));
-
-        std::stringstream ss;
-        ss << "match (n:Namespace), (c:Class) where"
-           << " n.universal_symbol_reference = $n_usr"
-           << " and c.universal_symbol_reference = $c_usr"
-           << " create (n)-[:HAS]->(c)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-    }
-
-    return true;
+    return this->graph_parent(cursor, parent_cursor);
 }
 
 bool
@@ -1374,7 +1377,7 @@ ast_visitor::graph_member_function_decl(stack_sentry<function_decl> & function_d
                                         CXCursor parent_cursor)
 {
     bool created = false;
-    if (!this->graph_function(cursor, parent_cursor, function_def_sentry, created, "MemberFunction", "MemberFunctionDeclaration", "MemberFunctionDefinition"))
+    if (!this->graph_function(cursor, parent_cursor, function_def_sentry, created))
     {
         return false;
     }
@@ -1384,28 +1387,12 @@ ast_visitor::graph_member_function_decl(stack_sentry<function_decl> & function_d
         return true;
     }
 
-    const auto cursor_usr = ngclang::universal_symbol_reference(cursor);
-    const auto parent_cursor_usr = ngclang::universal_symbol_reference(parent_cursor);
-
+    if (!this->graph_parent(cursor, parent_cursor))
     {
-        // Class Relationship
-        mg::Map query_params(2);
-        query_params.Insert("c_usr", mg::Value(parent_cursor_usr.string()));
-        query_params.Insert("mf_usr", mg::Value(cursor_usr.string()));
-
-        std::stringstream ss;
-        ss << "match (mf:MemberFunction), (c:Class) "
-           << "where "
-           << "mf.universal_symbol_reference = $mf_usr and "
-           << "c.universal_symbol_reference = $c_usr "
-           << "create (c)-[:HAS]->(mf)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
+        return false;
     }
+
+    const auto cursor_usr = ngclang::universal_symbol_reference(cursor);
 
     {
         // Virtual function overrides
@@ -1445,9 +1432,8 @@ ast_visitor::graph_constructor(stack_sentry<function_decl> & function_def_sentry
                                CXCursor cursor,
                                CXCursor parent_cursor)
 {
-
     bool created = false;
-    if (!this->graph_function(cursor, parent_cursor, function_def_sentry, created, "Constructor", "ConstructionDeclaration", "ConstructorDefinition"))
+    if (!this->graph_function(cursor, parent_cursor, function_def_sentry, created))
     {
         return false;
     }
@@ -1457,30 +1443,7 @@ ast_visitor::graph_constructor(stack_sentry<function_decl> & function_def_sentry
         return true;
     }
 
-    const std::string cursor_usr = ngclang::to_string(cursor, &clang_getCursorUSR);
-    const std::string parent_cursor_usr = ngclang::to_string(parent_cursor, &clang_getCursorUSR);
-
-    {
-        // Class Relationship
-        mg::Map query_params(2);
-        query_params.Insert("c_usr", mg::Value(parent_cursor_usr));
-        query_params.Insert("ctor_usr", mg::Value(cursor_usr));
-
-        std::stringstream ss;
-        ss << "match (ctor:Constructor), (c:Class) "
-           << "where "
-           << "ctor.universal_symbol_reference = $ctor_usr and "
-           << "c.universal_symbol_reference = $c_usr "
-           << "create (c)-[:HAS]->(ctor)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-    }
-
-    return true;
+    return this->graph_parent(cursor, parent_cursor);
 }
 
 bool
@@ -1489,7 +1452,7 @@ ast_visitor::graph_destructor(stack_sentry<function_decl> & function_def_sentry,
                               CXCursor parent_cursor)
 {
     bool created = false;
-    if (!this->graph_function(cursor, parent_cursor, function_def_sentry, created, "Destructor", "DestructorDeclaration", "DestructorDefinition"))
+    if (!this->graph_function(cursor, parent_cursor, function_def_sentry, created))
     {
         return false;
     }
@@ -1499,30 +1462,7 @@ ast_visitor::graph_destructor(stack_sentry<function_decl> & function_def_sentry,
         return true;
     }
 
-    const std::string cursor_usr = ngclang::to_string(cursor, &clang_getCursorUSR);
-    const std::string parent_cursor_usr = ngclang::to_string(parent_cursor, &clang_getCursorUSR);
-
-    {
-        // Class Relationship
-        mg::Map query_params(2);
-        query_params.Insert("c_usr", mg::Value(parent_cursor_usr));
-        query_params.Insert("dtor_usr", mg::Value(cursor_usr));
-
-        std::stringstream ss;
-        ss << "match (dtor:Destructor), (c:Class) "
-           << "where "
-           << "dtor.universal_symbol_reference = $dtor_usr and "
-           << "c.universal_symbol_reference = $c_usr "
-           << "create (c)-[:HAS]->(dtor)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-    }
-
-    return true;
+    return this->graph_parent(cursor, parent_cursor);
 }
 
 std::string
@@ -1586,6 +1526,30 @@ ast_visitor::edge_exists(const std::string & src_label,
        << " {universal_symbol_reference: $dst_usr})<-[:"
        << edge_label << "]-(s:"
        << src_label
+       << " {universal_symbol_reference: $src_usr}) return s";
+
+    ngmg::statement_executor executor(std::ref(*this->_mgclient));
+    if (!executor.execute(ss.str(), query_params.AsConstMap()))
+    {
+        throw std::runtime_error("error running: " + ss.str());
+    }
+
+    return static_cast<bool>(this->_mgclient->FetchOne());
+}
+
+bool
+ast_visitor::edge_exists(const ngclang::universal_symbol_reference & src,
+                         const std::string & edge_label,
+                         const ngclang::universal_symbol_reference & dst)
+{
+    // Create namespace to class relationship
+    mg::Map query_params(2);
+    query_params.Insert("src_usr", mg::Value(src.string()));
+    query_params.Insert("dst_usr", mg::Value(dst.string()));
+
+    std::stringstream ss;
+    ss << "match (d {universal_symbol_reference: $dst_usr})<-[:"
+       << edge_label << "]-(s"
        << " {universal_symbol_reference: $src_usr}) return s";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
