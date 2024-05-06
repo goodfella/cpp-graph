@@ -227,11 +227,11 @@ printing_visitor(CXCursor c, CXCursor parent, CXClientData client_data)
     return CXChildVisit_Continue;
 }
 
-class namespace_decl
+class name_decl
 {
     public:
-    namespace_decl(const std::string & name,
-                   const cursor_location location);
+    name_decl(const std::string & name,
+              const cursor_location location);
 
     std::string
     name() const;
@@ -248,26 +248,26 @@ class namespace_decl
     cursor_location _location;
 };
 
-namespace_decl::namespace_decl(const std::string & name,
-                               const cursor_location location):
+name_decl::name_decl(const std::string & name,
+                     const cursor_location location):
     _name(name),
     _location(location)
 {}
 
 std::string
-namespace_decl::name() const
+name_decl::name() const
 {
     return this->_name;
 }
 
 unsigned int
-namespace_decl::line() const
+name_decl::line() const
 {
     return this->_location.line();
 }
 
 unsigned int
-namespace_decl::column() const
+name_decl::column() const
 {
     return this->_location.column();
 }
@@ -673,9 +673,6 @@ class ast_visitor
     std::string
     fully_qualified_namespace() const;
 
-    namespace_decl const *
-    parent_namespace() const;
-
     private:
 
     CXChildVisitResult
@@ -687,7 +684,7 @@ class ast_visitor
                  CXCursor parent_cursor);
 
     bool
-    graph_namespace(stack_sentry<namespace_decl> & sentry,
+    graph_namespace(stack_sentry<name_decl> & sentry,
                     CXCursor cursor,
                     CXCursor parent_cursor);
 
@@ -700,7 +697,9 @@ class ast_visitor
     graph_function_call(CXCursor cursor, CXCursor parent_cursor);
 
     bool
-    graph_class_decl(CXCursor cursor, CXCursor parent_cursor);
+    graph_class_decl(stack_sentry<name_decl> & name_sentry,
+                     CXCursor cursor,
+                     CXCursor parent_cursor);
 
     bool
     graph_base_class_specifier(CXCursor, CXCursor parent_cursor);
@@ -756,7 +755,7 @@ class ast_visitor
                        const std::string & universal_symbol_reference);
 
 
-    std::vector<namespace_decl> _namespaces;
+    std::vector<name_decl> _names;
     mg::Client * const _mgclient = nullptr;
     ast_visitor_policy const * _policy = nullptr;
     std::vector<function_decl> _function_definitions;
@@ -772,17 +771,6 @@ ast_visitor::ast_visitor(std::reference_wrapper<mg::Client> mgclient,
     {
         this->_policy = &policy->get();
     }
-}
-
-namespace_decl const *
-ast_visitor::parent_namespace() const
-{
-    if (this->_namespaces.empty())
-    {
-        return nullptr;
-    }
-
-    return &this->_namespaces.back();
 }
 
 CXChildVisitResult
@@ -815,7 +803,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
     }
 
-    stack_sentry<namespace_decl> namespace_sentry(std::ref(this->_namespaces));
+    stack_sentry<name_decl> name_sentry(std::ref(this->_names));
     stack_sentry<function_decl> function_def_sentry(std::ref(this->_function_definitions));
     stack_sentry<cursor_location> call_expr_sentry(std::ref(this->_call_expressions));
 
@@ -825,7 +813,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
     {
         case CXCursor_Namespace:
         {
-            if (!this->graph_namespace(namespace_sentry, cursor, parent_cursor))
+            if (!this->graph_namespace(name_sentry, cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -853,7 +841,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
         case CXCursor_ClassDecl:
         {
-            if (!this->graph_class_decl(cursor, parent_cursor))
+            if (!this->graph_class_decl(name_sentry, cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -862,7 +850,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
         case CXCursor_ClassTemplate:
         {
-            if (!this->graph_class_decl(cursor, parent_cursor))
+            if (!this->graph_class_decl(name_sentry, cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -948,12 +936,12 @@ ast_visitor::graph_parent(CXCursor cursor, CXCursor parent_cursor)
 }
 
 bool
-ast_visitor::graph_namespace(stack_sentry<namespace_decl> & namespace_sentry, CXCursor cursor, CXCursor parent_cursor)
+ast_visitor::graph_namespace(stack_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
 {
     const cursor_location cursor_loc = cursor_location(cursor);
     const std::string name = ngclang::to_string(cursor, &clang_getCursorSpelling);
     const std::string usr = ngclang::to_string(cursor, &clang_getCursorUSR);
-    namespace_sentry.push(namespace_decl{name, cursor_loc});
+    name_sentry.push(name_decl{name, cursor_loc});
 
     {
         if (this->node_exists_by_location("NamespaceDeclaration", cursor_loc))
@@ -1262,12 +1250,13 @@ ast_visitor::graph_function_call(CXCursor cursor, CXCursor parent)
 }
 
 bool
-ast_visitor::graph_class_decl(CXCursor cursor, CXCursor parent_cursor)
+ast_visitor::graph_class_decl(stack_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
 {
     const cursor_location cursor_loc = cursor_location(cursor);
     const std::string name = ngclang::to_string(cursor, &clang_getCursorSpelling);
     const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
     const std::string usr = ngclang::to_string(cursor, &clang_getCursorUSR);
+    name_sentry.push(name_decl{name, cursor_loc});
 
     {
         if (this->node_exists_by_location("ClassDeclaration", cursor_loc))
@@ -1494,14 +1483,14 @@ std::string
 ast_visitor::fully_qualified_namespace() const
 {
     std::string name;
-    if (this->_namespaces.empty())
+    if (this->_names.empty())
     {
         return name;
     }
 
-    name = this->_namespaces.front().name();
-    for (auto i = this->_namespaces.cbegin() + 1;
-         i != this->_namespaces.cend();
+    name = this->_names.front().name();
+    for (auto i = this->_names.cbegin() + 1;
+         i != this->_names.cend();
          ++i)
     {
         name += "::";
