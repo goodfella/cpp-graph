@@ -908,8 +908,17 @@ bool
 ast_visitor::graph_parent(CXCursor cursor, CXCursor parent_cursor)
 {
     const auto cursor_usr = ngclang::universal_symbol_reference(cursor);
-    const auto parent_usr = ngclang::universal_symbol_reference(parent_cursor);
-    const cursor_location parent_loc = cursor_location(parent_cursor);
+    const auto parent_usr = [&cursor, &parent_cursor]() {
+        CXCursor semantic_parent = clang_getCursorSemanticParent(cursor);
+        if (clang_Cursor_isNull(semantic_parent))
+        {
+            return ngclang::universal_symbol_reference(parent_cursor);
+        }
+        else
+        {
+            return ngclang::universal_symbol_reference(semantic_parent);
+        }
+    }();
 
     if (this->edge_exists(parent_usr, "HAS", cursor_usr))
     {
