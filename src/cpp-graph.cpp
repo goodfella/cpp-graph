@@ -850,6 +850,14 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 
             break;
         }
+        case CXCursor_ClassTemplate:
+        {
+            if (!this->graph_class_decl(cursor, parent_cursor))
+            {
+                return CXChildVisit_Break;
+            }
+            break;
+        }
         case CXCursor_CXXMethod:
         {
             if (!this->graph_member_function_decl(function_def_sentry, cursor, parent_cursor))
