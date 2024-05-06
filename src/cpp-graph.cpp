@@ -759,7 +759,6 @@ class ast_visitor
     mg::Client * const _mgclient = nullptr;
     ast_visitor_policy const * _policy = nullptr;
     std::vector<function_decl> _function_definitions;
-    std::vector<cursor_location> _call_expressions;
     unsigned int _level = 0;
 };
 
@@ -805,7 +804,6 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 
     stack_sentry<name_decl> name_sentry(std::ref(this->_names));
     stack_sentry<function_decl> function_def_sentry(std::ref(this->_function_definitions));
-    stack_sentry<cursor_location> call_expr_sentry(std::ref(this->_call_expressions));
 
     const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
 
@@ -831,7 +829,6 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
         case CXCursor_CallExpr:
         {
-            call_expr_sentry.push(cursor_location(cursor));
             if (!this->graph_function_call(cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
@@ -1903,7 +1900,6 @@ int main(int argc, char ** argv)
             }
 
             std::cout << "parsing: " << file_path << std::endl;
-
             parse_compile_command(index.get(), compile_command, *client, policy);
         }
     }
