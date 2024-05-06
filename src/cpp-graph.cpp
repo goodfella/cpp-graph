@@ -73,9 +73,13 @@ memgraph_init::~memgraph_init()
 
 std::ostream& operator<<(std::ostream& stream, const CXString& str)
 {
-  stream << clang_getCString(str);
-  clang_disposeString(str);
-  return stream;
+    char const * const cstring = clang_getCString(str);
+    if (cstring)
+    {
+        stream << cstring;
+    }
+    clang_disposeString(str);
+    return stream;
 }
 
 class cursor_location
@@ -150,6 +154,7 @@ print_cursor(CXCursor c, CXCursor parent, unsigned int level)
     const CXSourceLocation location = clang_getCursorLocation(c);
     CXCursor ref = clang_getCursorReferenced(c);
     const std::string usr = ngclang::to_string(c, &clang_getCursorUSR);
+    const std::string parent_usr = ngclang::to_string(parent, &clang_getCursorUSR);
     const std::string name = ngclang::to_string(c, &clang_getCursorSpelling);
     const std::string display_name = ngclang::to_string(c, &clang_getCursorDisplayName);
 
@@ -171,6 +176,8 @@ print_cursor(CXCursor c, CXCursor parent, unsigned int level)
               << '(' << clang_getTypeSpelling(cursor_type) << ')' << std::endl
               << cursor_property_indent << " usr "
               << '(' << usr << ')' << std::endl
+              << cursor_property_indent << " parent usr "
+              << '(' << parent_usr << ')' << std::endl
               << cursor_property_indent << " name "
               << '(' << name << ')' << std::endl
               << cursor_property_indent << " display name "
