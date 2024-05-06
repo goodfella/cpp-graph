@@ -28,6 +28,11 @@ ngclang::to_string(CXString cxstring)
 std::string
 ngclang::to_string(CXCursor c, CXString (*f)(CXCursor))
 {
+    if(clang_Cursor_isNull(c))
+    {
+        return std::string();
+    }
+
     ngclang::string_t string = f(c);
     return to_string(string.get());
 }

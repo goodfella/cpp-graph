@@ -149,6 +149,12 @@ cursor_location::column() const noexcept
 void
 print_cursor(CXCursor c, CXCursor parent, unsigned int level)
 {
+    CXCursor semantic_parent = clang_getCursorSemanticParent(c);
+    const std::string semantic_parent_usr = ngclang::to_string(semantic_parent, &clang_getCursorUSR);
+
+    CXCursor lexical_parent = clang_getCursorLexicalParent(c);
+    const std::string lexical_parent_usr = ngclang::to_string(lexical_parent, &clang_getCursorUSR);
+
     const CXCursorKind cursor_kind = clang_getCursorKind(c);
     const CXType cursor_type = clang_getCursorType(c);
     const CXSourceLocation location = clang_getCursorLocation(c);
@@ -178,6 +184,10 @@ print_cursor(CXCursor c, CXCursor parent, unsigned int level)
               << '(' << usr << ')' << std::endl
               << cursor_property_indent << " parent usr "
               << '(' << parent_usr << ')' << std::endl
+              << cursor_property_indent << " lexical parent usr "
+              << '(' << lexical_parent_usr << ')' << std::endl
+              << cursor_property_indent << " semantic parent usr "
+              << '(' << semantic_parent_usr << ')' << std::endl
               << cursor_property_indent << " name "
               << '(' << name << ')' << std::endl
               << cursor_property_indent << " display name "
