@@ -1839,13 +1839,13 @@ int main(int argc, char ** argv)
     client->Execute("CREATE INDEX ON :Function(universal_symbol_reference);");
     client->DiscardAll();
 
-    client->Execute("CREATE INDEX ON :FunctionDefinition(universal_symbol_reference);");
-    client->DiscardAll();
-
     client->Execute("CREATE INDEX ON :MemberFunction(universal_symbol_reference);");
     client->DiscardAll();
 
-    client->Execute("CREATE INDEX ON :MemberFunctionDefinition(universal_symbol_reference);");
+    client->Execute("CREATE INDEX ON :Constructor(universal_symbol_reference);");
+    client->DiscardAll();
+
+    client->Execute("CREATE INDEX ON :Destructor(universal_symbol_reference);");
     client->DiscardAll();
 
     ngclang::object<CXIndex, ngclang::dispose_index> index = clang_createIndex(0,1);
