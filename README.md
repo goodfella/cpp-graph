@@ -20,7 +20,7 @@ directives.
 # Examples
 ## Call graph:
 This cypher query returns functions and member functions and the
-functions and/or member functions they call
+functions and/or member functions they call.
 
 ```Cypher
 match (a)-[r:CALLS]->(b)
