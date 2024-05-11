@@ -19,7 +19,22 @@ directives.
 
 # Examples
 ## Call graph:
+This cypher query returns functions and member functions and the
+functions and/or member functions they call
+
+```Cypher
+match (a)-[r:CALLS]->(b)
+return a,r,b
+```
 ![Call Graph](./doc/assets/call-graph.png)
 
 ## Code organization
+This cypher query returns the following:
+- Namespaces and the classes and functions they contain
+- Classes and the classes and member functions they contain
+
+```Cypher
+match (a)-[r:HAS]->(b)
+return a,r,b
+```
 ![Code Organization](./doc/assets/code-organization.png)
