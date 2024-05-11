@@ -16,3 +16,10 @@ Building cpp-graph is best done with the
 repository since it brings in the necessary dependencies and contains
 a top level CMakeLists.txt that contains the required additional build
 directives.
+
+# Examples
+## Call graph:
+![Call Graph](./doc/assets/call-graph.png)
+
+## Code organization
+![Code Organization](./doc/assets/code-organization.png)
