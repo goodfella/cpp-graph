@@ -1403,17 +1403,20 @@ ast_visitor::graph_class_decl(stack_sentry<name_decl> & name_sentry, CXCursor cu
 
         if (!class_exists)
         {
-            mg::Map query_params(4);
+            const bool is_template = clang_getCursorKind(cursor) == CXCursor_ClassTemplate;
+            mg::Map query_params(5);
             query_params.Insert("fq_name", mg::Value(this->fully_qualified_namespace() + "::"+ name));
             query_params.Insert("name", mg::Value(name));
             query_params.Insert("display_name", mg::Value(display_name));
             query_params.Insert("universal_symbol_reference", mg::Value(usr));
-                        
+            query_params.Insert("is_template", mg::Value(is_template));
+
             std::stringstream ss;
             ss << "create(:Class {"
                << "name: $display_name,"
                << "unqualified_name: $name,"
                << "fq_name: $fq_name,"
+               << "is_template: $is_template,"
                << "universal_symbol_reference: $universal_symbol_reference})";
 
             ngmg::statement_executor executor(std::ref(*this->_mgclient));
