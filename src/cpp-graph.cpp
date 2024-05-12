@@ -299,7 +299,7 @@ function_decl::function_decl(CXCursor cursor):
     _location(cursor),
     _universal_symbol_reference(ngclang::to_string(cursor, &clang_getCursorUSR))
 {
-    const CXCursorKind cursor_kind = clang_getCursorKind(cursor);    
+    const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
     if (cursor_kind == CXCursor_CXXMethod)
     {
         this->_is_member_function = true;
@@ -600,6 +600,86 @@ function_labels(CXCursor cursor,
 
             break;
         }
+        case CXCursor_FunctionTemplate:
+        {
+            CXCursor semantic_parent = clang_getCursorSemanticParent(cursor);
+            if (!clang_Cursor_isNull(semantic_parent))
+            {
+                const auto parent_kind = clang_getCursorKind(semantic_parent);
+                switch(parent_kind)
+                {
+                    case CXCursor_ClassDecl:
+                    {
+                        if (label)
+                        {
+                            *label = "MemberFunction";
+                        }
+                        if (decl_label)
+                        {
+                            *decl_label = "MemberFunctionDeclaration";
+                        }
+                        if (def_label)
+                        {
+                            *def_label = "MemberFunctionDefinition";
+                        }
+
+                        break;
+                    }
+                    case CXCursor_ClassTemplate:
+                    {
+                        if (label)
+                        {
+                            *label = "MemberFunction";
+                        }
+                        if (decl_label)
+                        {
+                            *decl_label = "MemberFunctionDeclaration";
+                        }
+                        if (def_label)
+                        {
+                            *def_label = "MemberFunctionDefinition";
+                        }
+
+                        break;
+                    }
+                    default:
+                    {
+                        if (label)
+                        {
+                            *label = "Function";
+                        }
+                        if (decl_label)
+                        {
+                            *decl_label = "FunctionDeclaration";
+                        }
+                        if (def_label)
+                        {
+                            *def_label = "FunctionDefinition";
+                        }
+
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                if (label)
+                {
+                    *label = "Function";
+                }
+                if (decl_label)
+                {
+                    *decl_label = "FunctionDeclaration";
+                }
+                if (def_label)
+                {
+                    *def_label = "FunctionDefinition";
+                }
+
+            }
+
+            break;
+        }
         case CXCursor_CXXMethod:
         {
             if (label)
@@ -825,6 +905,14 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
                 return CXChildVisit_Break;
             }
 
+            break;
+        }
+        case CXCursor_FunctionTemplate:
+        {
+            if (!this->graph_function_decl(function_def_sentry, cursor, parent_cursor))
+            {
+                return CXChildVisit_Break;
+            }
             break;
         }
         case CXCursor_CallExpr:
@@ -1057,20 +1145,23 @@ ast_visitor::graph_function(CXCursor cursor,
     const std::string name = ngclang::to_string(cursor, &clang_getCursorSpelling);
     const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
     const std::string usr = ngclang::to_string(cursor, &clang_getCursorUSR);
+    const bool is_template = clang_getCursorKind(cursor) == CXCursor_FunctionTemplate;
 
     if (!this->node_exists_by_usr(function_label, usr))
     {
-        mg::Map query_params(4);
+        mg::Map query_params(5);
         query_params.Insert("fq_name", mg::Value(this->fully_qualified_namespace() + "::"+ name));
         query_params.Insert("name", mg::Value(name));
         query_params.Insert("display_name", mg::Value(display_name));
         query_params.Insert("universal_symbol_reference", mg::Value(usr));
+        query_params.Insert("is_template", mg::Value(is_template));
 
         std::stringstream ss;
         ss << "create(:" << function_label << '{'
            << "name: $display_name,"
            << "unqualified_name: $name,"
            << "fq_name: $fq_name,"
+           << "is_template: $is_template,"
            << "universal_symbol_reference: $universal_symbol_reference})";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
