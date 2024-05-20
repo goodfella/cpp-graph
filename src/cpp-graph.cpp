@@ -199,10 +199,10 @@ print_cursor(CXCursor c, CXCursor parent, unsigned int level)
               << cursor_property_indent << " column "
               << '(' << column << ')' << std::endl;
 
-
+    const std::string ref_property_indent = "  " + cursor_property_indent;
+    const auto overloaded_decl_ref_count = clang_getNumOverloadedDecls(c);
     if (!clang_Cursor_isNull(ref))
     {
-        const std::string ref_property_indent = "  " + cursor_property_indent;
         const std::string ref_usr = ngclang::to_string(ref, &clang_getCursorUSR);
         std::cout << cursor_property_indent << " ref " << std::endl;
         std::cout << ref_property_indent << " type "
@@ -215,6 +215,24 @@ print_cursor(CXCursor c, CXCursor parent, unsigned int level)
         std::cout << cursor_property_indent << " ref ";
         std::cout << '(' << "null" << ')' << std::endl;
     }
+
+    if (overloaded_decl_ref_count > 0)
+    {
+        for (unsigned int i = 0; i < overloaded_decl_ref_count; ++i)
+        {
+            CXCursor overloaded_ref = clang_getOverloadedDecl(c, i);
+            if (!clang_Cursor_isNull(overloaded_ref))
+            {
+                const std::string ref_usr = ngclang::to_string(overloaded_ref, &clang_getCursorUSR);
+                std::cout << cursor_property_indent << " overloaded decl ref " << std::endl;
+                std::cout << ref_property_indent << " type "
+                          << '(' << clang_getTypeSpelling(clang_getCursorType(ref)) << ')' << std::endl;
+                std::cout << ref_property_indent << " usr "
+                          << '(' << ref_usr << ')' << std::endl;
+            }
+        }
+    }
+
 }
 
 CXChildVisitResult
