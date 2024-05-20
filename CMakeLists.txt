@@ -32,7 +32,7 @@ target_compile_options(cpp-graph
   -Wall
   -g3)
 
-set_property(TARGET cpp-graph PROPERTY CXX_STANDARD 20)
+set_property(TARGET cpp-graph PROPERTY CXX_STANDARD 23)
 
 target_link_libraries(cpp-graph
   PRIVATE
