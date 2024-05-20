@@ -1039,11 +1039,7 @@ ast_visitor::graph_parent(CXCursor cursor, CXCursor parent_cursor)
        << " create (p)-[:HAS]->(c)";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-    {
-        return false;
-    }
-
+    executor.execute(ss.str(), query_params.AsConstMap());
     return true;
 }
 
@@ -1078,10 +1074,7 @@ ast_visitor::graph_namespace(stack_sentry<name_decl> & name_sentry, CXCursor cur
            << "fq_name: $fq_name})";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
+        executor.execute(ss.str(), query_params.AsConstMap());
     }
 
     // Create the Namespace node if it doesn't already exist
@@ -1093,11 +1086,7 @@ ast_visitor::graph_namespace(stack_sentry<name_decl> & name_sentry, CXCursor cur
         ss << "match (n:Namespace) where n.universal_symbol_reference = $universal_symbol_reference return n";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            throw std::runtime_error("error executing statement");
-        }
-
+        executor.execute(ss.str(), query_params.AsConstMap());
         return static_cast<bool>(this->_mgclient->FetchOne());
     }();
 
@@ -1115,10 +1104,7 @@ ast_visitor::graph_namespace(stack_sentry<name_decl> & name_sentry, CXCursor cur
            << "universal_symbol_reference: $universal_symbol_reference})";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
+        executor.execute(ss.str(), query_params.AsConstMap());
     }
 
     {
@@ -1138,10 +1124,7 @@ ast_visitor::graph_namespace(stack_sentry<name_decl> & name_sentry, CXCursor cur
            << " create (nd)-[:DECLARES]->(n)";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
+        executor.execute(ss.str(), query_params.AsConstMap());
     }
 
     return this->graph_parent(cursor, parent_cursor);
@@ -1183,11 +1166,7 @@ ast_visitor::graph_function(CXCursor cursor,
            << "universal_symbol_reference: $universal_symbol_reference})";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
-
+        executor.execute(ss.str(), query_params.AsConstMap());
         created = true;
     }
 
@@ -1214,10 +1193,7 @@ ast_visitor::graph_function(CXCursor cursor,
                    << "name: $name})";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                if (!executor.execute(ss.str(), query_params.AsConstMap()))
-                {
-                    return false;
-                }
+                executor.execute(ss.str(), query_params.AsConstMap());
             }
 
             {
@@ -1236,10 +1212,7 @@ ast_visitor::graph_function(CXCursor cursor,
                    << " create (fd)-[:DEFINES]->(f)";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                if (!executor.execute(ss.str(), query_params.AsConstMap()))
-                {
-                    return false;
-                }
+                executor.execute(ss.str(), query_params.AsConstMap());
             }
         }
     }
@@ -1263,10 +1236,7 @@ ast_visitor::graph_function(CXCursor cursor,
                    << "column: $column})";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                if (!executor.execute(ss.str(), query_params.AsConstMap()))
-                {
-                    return false;
-                }
+                executor.execute(ss.str(), query_params.AsConstMap());
             }
 
             {
@@ -1286,10 +1256,7 @@ ast_visitor::graph_function(CXCursor cursor,
                    << " create (fd)-[:DECLARES]->(f)";
 
                 ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                if (!executor.execute(ss.str(), query_params.AsConstMap()))
-                {
-                    return false;
-                }
+                executor.execute(ss.str(), query_params.AsConstMap());
             }
         }
     }
@@ -1356,10 +1323,7 @@ ast_visitor::graph_function_call(CXCursor cursor, CXCursor parent)
        << " create (caller)-[:CALLS {file: $file, line: $line, column: $column}]->(callee)";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-    {
-        return false;
-    }
+    executor.execute(ss.str(), query_params.AsConstMap());
 
     return true;
 }
@@ -1395,10 +1359,7 @@ ast_visitor::graph_class_decl(stack_sentry<name_decl> & name_sentry, CXCursor cu
            << "column: $column})";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
+        executor.execute(ss.str(), query_params.AsConstMap());
     }
 
     {
@@ -1411,11 +1372,7 @@ ast_visitor::graph_class_decl(stack_sentry<name_decl> & name_sentry, CXCursor cu
             ss << "match (c:Class) where c.universal_symbol_reference = $universal_symbol_reference return c";
 
             ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                throw std::runtime_error("error running: " + ss.str());
-            }
-
+            executor.execute(ss.str(), query_params.AsConstMap());
             return static_cast<bool>(this->_mgclient->FetchOne());
         }();
 
@@ -1438,10 +1395,7 @@ ast_visitor::graph_class_decl(stack_sentry<name_decl> & name_sentry, CXCursor cu
                << "universal_symbol_reference: $universal_symbol_reference})";
 
             ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                return false;
-            }
+            executor.execute(ss.str(), query_params.AsConstMap());
         }
     }
 
@@ -1462,10 +1416,7 @@ ast_visitor::graph_class_decl(stack_sentry<name_decl> & name_sentry, CXCursor cu
            << " create (cd)-[:DECLARES]->(c)";
 
         ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        if (!executor.execute(ss.str(), query_params.AsConstMap()))
-        {
-            return false;
-        }
+        executor.execute(ss.str(), query_params.AsConstMap());
     }
 
     return this->graph_parent(cursor, parent_cursor);
@@ -1495,11 +1446,7 @@ ast_visitor::graph_base_class_specifier(CXCursor cursor, CXCursor parent_cursor)
        << "create (c)-[:INHERITS]->(b)";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-    {
-        return false;
-    }
-
+    executor.execute(ss.str(), query_params.AsConstMap());
     return true;
 }
 
@@ -1549,10 +1496,7 @@ ast_visitor::graph_member_function_decl(stack_sentry<function_decl> & function_d
                << "create (mf)-[:OVERRIDES]->(of)";
 
             ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            if (!executor.execute(ss.str(), query_params.AsConstMap()))
-            {
-                return false;
-            }
+            executor.execute(ss.str(), query_params.AsConstMap());
         }
     }
 
@@ -1631,12 +1575,7 @@ ast_visitor::edge_exists(const std::string & label,
     ss << "match (lhs)-[" << label << " {file: $file, line: $line, column: $column}]->(rhs) return rhs";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-    {
-        throw "wtf";
-        return false;
-    }
-
+    executor.execute(ss.str(), query_params.AsConstMap());
     return static_cast<bool>(this->_mgclient->FetchOne());
 }
 
@@ -1661,11 +1600,7 @@ ast_visitor::edge_exists(const std::string & src_label,
        << " {universal_symbol_reference: $src_usr}) return s";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-    {
-        throw std::runtime_error("error running: " + ss.str());
-    }
-
+    executor.execute(ss.str(), query_params.AsConstMap());
     return static_cast<bool>(this->_mgclient->FetchOne());
 }
 
@@ -1685,11 +1620,7 @@ ast_visitor::edge_exists(const ngclang::universal_symbol_reference & src,
        << " {universal_symbol_reference: $src_usr}) return s";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-    {
-        throw std::runtime_error("error running: " + ss.str());
-    }
-
+    executor.execute(ss.str(), query_params.AsConstMap());
     return static_cast<bool>(this->_mgclient->FetchOne());
 }
 
@@ -1710,11 +1641,7 @@ ast_visitor::node_exists_by_location(const std::string & label,
        << " return d";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-    {
-        return false;
-    }
-
+    executor.execute(ss.str(), query_params.AsConstMap());
     return static_cast<bool>(this->_mgclient->FetchOne());
 }
 
@@ -1729,11 +1656,7 @@ ast_visitor::node_exists_by_usr(const std::string & label,
     ss << "match (fd:" << label << ") where fd.universal_symbol_reference = $universal_symbol_reference return fd";
 
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    if (!executor.execute(ss.str(), query_params.AsConstMap()))
-    {
-        throw std::runtime_error("error running: " + ss.str());
-    }
-
+    executor.execute(ss.str(), query_params.AsConstMap());
     return static_cast<bool>(this->_mgclient->FetchOne());
 }
 

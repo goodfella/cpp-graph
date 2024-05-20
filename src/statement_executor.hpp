@@ -3,6 +3,7 @@
 
 #include <mgclient.hpp>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 
@@ -13,6 +14,14 @@ namespace mg
 
 namespace ngmg
 {
+    class execute_error: public std::runtime_error
+    {
+        public:
+
+        explicit
+        execute_error(const std::string & stmt);
+    };
+
     class statement_executor
     {
         public:
@@ -25,10 +34,10 @@ namespace ngmg
 
         ~statement_executor() noexcept;
 
-        bool
+        void
         execute(const std::string & statement);
 
-        bool
+        void
         execute(const std::string & statement, const mg::ConstMap & params);
 
         private:
