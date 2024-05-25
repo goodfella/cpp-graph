@@ -343,12 +343,12 @@ function_decl::is_member_function() const noexcept
 }
 
 template <class T>
-class stack_sentry
+class vector_sentry
 {
     public:
 
-    stack_sentry(std::reference_wrapper<std::vector<T>> stack);
-    ~stack_sentry();
+    vector_sentry(std::reference_wrapper<std::vector<T>> stack);
+    ~vector_sentry();
 
     void
     push(const T);
@@ -358,12 +358,12 @@ class stack_sentry
 };
 
 template <class T>
-stack_sentry<T>::stack_sentry(std::reference_wrapper<std::vector<T>> stack):
+vector_sentry<T>::vector_sentry(std::reference_wrapper<std::vector<T>> stack):
     _stack(&stack.get())
 {}
 
 template <class T>
-stack_sentry<T>::~stack_sentry()
+vector_sentry<T>::~vector_sentry()
 {
     if (this->_armed)
     {
@@ -373,7 +373,7 @@ stack_sentry<T>::~stack_sentry()
 
 template <class T>
 void
-stack_sentry<T>::push(const T t)
+vector_sentry<T>::push(const T t)
 {
     this->_stack->push_back(t);
     this->_armed= true;
@@ -782,12 +782,12 @@ class ast_visitor
                  CXCursor parent_cursor);
 
     bool
-    graph_namespace(stack_sentry<name_decl> & sentry,
+    graph_namespace(vector_sentry<name_decl> & sentry,
                     CXCursor cursor,
                     CXCursor parent_cursor);
 
     bool
-    graph_function_decl(stack_sentry<function_decl> & function_def_sentry,
+    graph_function_decl(vector_sentry<function_decl> & function_def_sentry,
                         CXCursor cursor,
                         CXCursor parent_cursor);
 
@@ -795,7 +795,7 @@ class ast_visitor
     graph_function_call(CXCursor cursor, CXCursor parent_cursor);
 
     bool
-    graph_class_decl(stack_sentry<name_decl> & name_sentry,
+    graph_class_decl(vector_sentry<name_decl> & name_sentry,
                      CXCursor cursor,
                      CXCursor parent_cursor);
 
@@ -808,24 +808,24 @@ class ast_visitor
      *  - 
      */
     bool
-    graph_member_function_decl(stack_sentry<function_decl> & function_def_sentry,
+    graph_member_function_decl(vector_sentry<function_decl> & function_def_sentry,
                                CXCursor cursor,
                                CXCursor parent_cursor);
 
     bool
-    graph_constructor(stack_sentry<function_decl> & ctor_def_sentry,
+    graph_constructor(vector_sentry<function_decl> & ctor_def_sentry,
                       CXCursor cursor,
                       CXCursor parent_cursor);
 
     bool
-    graph_destructor(stack_sentry<function_decl> & dtor_def_sentry,
+    graph_destructor(vector_sentry<function_decl> & dtor_def_sentry,
                       CXCursor cursor,
                       CXCursor parent_cursor);
 
     bool
     graph_function(CXCursor cursor,
                    CXCursor parent_cursor,
-                   stack_sentry<function_decl> & function_def_sentry,
+                   vector_sentry<function_decl> & function_def_sentry,
                    bool & created);
 
     bool
@@ -900,8 +900,8 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
     }
 
-    stack_sentry<name_decl> name_sentry(std::ref(this->_names));
-    stack_sentry<function_decl> function_def_sentry(std::ref(this->_function_definitions));
+    vector_sentry<name_decl> name_sentry(std::ref(this->_names));
+    vector_sentry<function_decl> function_def_sentry(std::ref(this->_function_definitions));
 
     const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
 
@@ -1044,7 +1044,7 @@ ast_visitor::graph_parent(CXCursor cursor, CXCursor parent_cursor)
 }
 
 bool
-ast_visitor::graph_namespace(stack_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
+ast_visitor::graph_namespace(vector_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
 {
     const cursor_location cursor_loc = cursor_location(cursor);
     const std::string name = ngclang::to_string(cursor, &clang_getCursorSpelling);
@@ -1133,7 +1133,7 @@ ast_visitor::graph_namespace(stack_sentry<name_decl> & name_sentry, CXCursor cur
 bool
 ast_visitor::graph_function(CXCursor cursor,
                             CXCursor parent_cursor,
-                            stack_sentry<function_decl> & function_def_sentry,
+                            vector_sentry<function_decl> & function_def_sentry,
                             bool & created)
 {
     created = false;
@@ -1265,7 +1265,7 @@ ast_visitor::graph_function(CXCursor cursor,
 }
 
 bool
-ast_visitor::graph_function_decl(stack_sentry<function_decl> & function_def_sentry,
+ast_visitor::graph_function_decl(vector_sentry<function_decl> & function_def_sentry,
                                  CXCursor cursor,
                                  CXCursor parent_cursor)
 {
@@ -1329,7 +1329,7 @@ ast_visitor::graph_function_call(CXCursor cursor, CXCursor parent)
 }
 
 bool
-ast_visitor::graph_class_decl(stack_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
+ast_visitor::graph_class_decl(vector_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
 {
     const cursor_location cursor_loc = cursor_location(cursor);
     const std::string name = ngclang::to_string(cursor, &clang_getCursorSpelling);
@@ -1451,7 +1451,7 @@ ast_visitor::graph_base_class_specifier(CXCursor cursor, CXCursor parent_cursor)
 }
 
 bool
-ast_visitor::graph_member_function_decl(stack_sentry<function_decl> & function_def_sentry,
+ast_visitor::graph_member_function_decl(vector_sentry<function_decl> & function_def_sentry,
                                         CXCursor cursor,
                                         CXCursor parent_cursor)
 {
@@ -1504,7 +1504,7 @@ ast_visitor::graph_member_function_decl(stack_sentry<function_decl> & function_d
 }
 
 bool
-ast_visitor::graph_constructor(stack_sentry<function_decl> & function_def_sentry,
+ast_visitor::graph_constructor(vector_sentry<function_decl> & function_def_sentry,
                                CXCursor cursor,
                                CXCursor parent_cursor)
 {
@@ -1523,7 +1523,7 @@ ast_visitor::graph_constructor(stack_sentry<function_decl> & function_def_sentry
 }
 
 bool
-ast_visitor::graph_destructor(stack_sentry<function_decl> & function_def_sentry,
+ast_visitor::graph_destructor(vector_sentry<function_decl> & function_def_sentry,
                               CXCursor cursor,
                               CXCursor parent_cursor)
 {
