@@ -10,48 +10,20 @@
 #include "help.hpp"
 #include <iostream>
 #include <memory>
-#include "ngclang.hpp"
+#include "memgraph/cypher.hpp"
+#include "memgraph/cypher/property.hpp"
+#include "memgraph/cypher/property_set.hpp"
 #include <mgclient.hpp>
+#include "ngclang.hpp"
+#include "node_property_names.hpp"
 #include <optional>
+#include "raw_node.hpp"
 #include <sstream>
 #include "statement_executor.hpp"
 #include <string>
+#include <string_view>
 #include <unistd.h>
 #include <vector>
-
-class field_name
-{
-    public:
-
-    virtual
-    std::string
-    to_string() const = 0;
-};
-
-template <std::size_t N>
-struct fixed_string
-{
-    constexpr fixed_string(char const (&s) [N]) {
-        std::copy(s, s + N, this->string.begin());
-    }
-
-    std::array<char, N> string;
-};
-
-template <fixed_string str>
-struct field_name_template: public field_name
-{
-    public:
-    
-    std::string
-    to_string() const override
-    {
-        return std::string(str.string.data());
-    }
-};
-
-field_name_template<"field"> f;
-
 
 class memgraph_init
 {
@@ -562,10 +534,24 @@ class ast_visitor_policy
     void
     print_ast(bool print) noexcept;
 
+    bool
+    graph_raw() const noexcept;
+
+    void
+    graph_raw(bool graph_raw) noexcept;
+
+    const std::optional<CXCursorKind> &
+    ancestor_match() const noexcept;
+
+    void
+    ancestor_match(CXCursorKind) noexcept;
+
     private:
 
     ast_visitor_filter _filter;
     bool _print_ast = false;
+    bool _graph_raw = false;
+    std::optional<CXCursorKind> _ancestor_match;
 };
 
 const ast_visitor_filter &
@@ -590,6 +576,30 @@ void
 ast_visitor_policy::print_ast(bool print) noexcept
 {
     this->_print_ast = print;
+}
+
+bool
+ast_visitor_policy::graph_raw() const noexcept
+{
+    return this->_graph_raw;
+}
+
+void
+ast_visitor_policy::graph_raw(bool graph_raw) noexcept
+{
+    this->_graph_raw = graph_raw;
+}
+
+const std::optional<CXCursorKind> &
+ast_visitor_policy::ancestor_match() const noexcept
+{
+    return this->_ancestor_match;
+}
+
+void
+ast_visitor_policy::ancestor_match(CXCursorKind kind) noexcept
+{
+    this->_ancestor_match = kind;
 }
 
 void
@@ -777,6 +787,10 @@ class ast_visitor
     graph (CXCursor cursor,
            CXCursor parent_cursor);
 
+    CXChildVisitResult
+    graph_raw(CXCursor cursor,
+              CXCursor parent_cursor);
+
     bool
     graph_parent(CXCursor cursor,
                  CXCursor parent_cursor);
@@ -852,11 +866,17 @@ class ast_visitor
     node_exists_by_usr(const std::string & label,
                        const std::string & universal_symbol_reference);
 
+    std::optional<bool>
+    node_exists(const CXCursorKind kind,
+                const ngclang::cursor_location & location);
 
     std::vector<name_decl> _names;
     mg::Client * const _mgclient = nullptr;
     ast_visitor_policy const * _policy = nullptr;
     std::vector<function_decl> _function_definitions;
+    std::vector<cursor_location> _ancestor_matches;
+
+    ngmg::cypher::property_set _child_prop_set = {};
     unsigned int _level = 0;
 };
 
@@ -879,6 +899,189 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor, CXClientData client_
 }
 
 CXChildVisitResult
+ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
+{
+    static raw_node node;
+
+    node.clear_sets();
+    node.fill_match_props(cursor);
+    const bool node_exists = ngmg::cypher::node_return(*this->_mgclient,
+                                                       node.match_property_tuple(),
+                                                       std::tie(node.visited_property));
+
+    if (node_exists && node.visited_property.value())
+    {
+        // cursor is already graphed and visited
+        return CXChildVisit_Continue;
+    }
+
+    node.visited_property.value(true);
+
+    if (!node_exists)
+    {
+        // node doesn't exist, so create it
+        node.fill_non_match_props(cursor);
+        ngmg::cypher::create_node(*this->_mgclient,
+                                  node.label_set,
+                                  node.property_tuple(),
+                                  node.property_set);
+    }
+    else
+    {
+        ngmg::cypher::match_set(*this->_mgclient,
+                                node.match_property_tuple(),
+                                std::tie(node.visited_property));
+    }
+
+    {
+        // Handle parents
+
+        {
+            static raw_node parent_node;
+            static const ngmg::cypher::label parent_label("PARENT");
+
+            parent_node.clear_sets();
+            parent_node.fill_match_props(parent_cursor);
+            const bool parent_exists =
+                ngmg::cypher::node_exists(*this->_mgclient,
+                                          parent_node.match_property_tuple());
+
+            if (!parent_exists)
+            {
+                parent_node.visited_property.value(false);
+                parent_node.fill_non_match_props(parent_cursor);
+                ngmg::cypher::create_node(*this->_mgclient,
+                                          parent_node.label_set,
+                                          parent_node.property_tuple(),
+                                          parent_node.property_set);
+            }
+
+            ngmg::cypher::merge_relate(*this->_mgclient,
+                                       parent_label,
+                                       node.match_property_tuple(),
+                                       parent_node.match_property_tuple());
+        }
+
+        {
+            static raw_node lexical_parent_node;
+            static const ngmg::cypher::label parent_label("LEXICAL_PARENT");
+
+            CXCursor lexical_parent_cursor = clang_getCursorLexicalParent(cursor);
+            if (!clang_Cursor_isNull(lexical_parent_cursor))
+            {
+                lexical_parent_node.clear_sets();
+                lexical_parent_node.fill_match_props(lexical_parent_cursor);
+                const bool lexical_parent_exists =
+                    ngmg::cypher::node_exists(*this->_mgclient,
+                                              lexical_parent_node.match_property_tuple());
+
+
+                if (!lexical_parent_exists)
+                {
+                    // add lexical parent
+                    lexical_parent_node.visited_property.value(false);
+                    lexical_parent_node.fill_non_match_props(lexical_parent_cursor);
+                    ngmg::cypher::create_node(*this->_mgclient,
+                                              lexical_parent_node.label_set,
+                                              lexical_parent_node.property_tuple(),
+                                              lexical_parent_node.property_set);
+                }
+
+                ngmg::cypher::merge_relate(*this->_mgclient,
+                                           parent_label,
+                                           node.match_property_tuple(),
+                                           lexical_parent_node.match_property_tuple());
+            }
+        }
+
+        {
+            static raw_node semantic_parent_node;
+            static const ngmg::cypher::label parent_label("SEMANTIC_PARENT");
+
+            CXCursor semantic_parent_cursor = clang_getCursorSemanticParent(cursor);
+            if (!clang_Cursor_isNull(semantic_parent_cursor))
+            {
+                semantic_parent_node.clear_sets();
+                semantic_parent_node.fill_match_props(semantic_parent_cursor);
+                const bool semantic_parent_exists =
+                    ngmg::cypher::node_exists(*this->_mgclient,
+                                              semantic_parent_node.match_property_tuple());
+
+                if (!semantic_parent_exists)
+                {
+                    // add semantic parent
+                    semantic_parent_node.visited_property.value(false);
+                    semantic_parent_node.fill_non_match_props(semantic_parent_cursor);
+                    ngmg::cypher::create_node(*this->_mgclient,
+                                              semantic_parent_node.label_set,
+                                              semantic_parent_node.property_tuple(),
+                                              semantic_parent_node.property_set);
+                }
+
+                ngmg::cypher::merge_relate(*this->_mgclient,
+                                           parent_label,
+                                           node.match_property_tuple(),
+                                           semantic_parent_node.match_property_tuple());
+            }
+        }
+    }
+
+    // handle referenced cursor
+
+    CXCursor ref_cursor = clang_getCursorReferenced(cursor);
+    if (!clang_Cursor_isNull(ref_cursor) && !clang_equalCursors(cursor, ref_cursor))
+    {
+        static raw_node ref_node;
+
+        ref_node.clear_sets();
+        ref_node.fill_match_props(ref_cursor);
+
+        const bool ref_node_exists = ngmg::cypher::node_exists(*this->_mgclient,
+                                                               ref_node.match_property_tuple());
+
+        if (!ref_node_exists)
+        {
+            ref_node.fill_non_match_props(cursor);
+            ref_node.visited_property.value(false);
+
+            // Implicit template function instantiations generate
+            // their own FunctionDecl cursors that for some reason are
+            // not visited.  So, when a match is performed nothing is
+            // returned because no cursor with the kind and location
+            // has been visited.
+
+            // Also, cursors can be referenced before they have been
+            // visited.
+
+            // To handle these two cases, when a referenced cursor's
+            // node does not exist, we create its node here with
+            // 'visited' set to false.  Then if that node is
+            // subsequently visited, we can set its 'visited' property
+            // true and create its parent relationship.
+
+            // In the end we should be able to detect what nodes are
+            // never visited by matching all nodes whose 'visited'
+            // property is set to false.
+
+            ngmg::cypher::create_node(*this->_mgclient,
+                                      ref_node.label_set,
+                                      ref_node.property_tuple(),
+                                      ref_node.property_set);
+        }
+
+        static const ngmg::cypher::label references_label("REFERENCES");
+        ngmg::cypher::merge_relate(*this->_mgclient,
+                                   references_label,
+                                   node.match_property_tuple(),
+                                   ref_node.match_property_tuple());
+    }
+
+
+    clang_visitChildren(cursor, &ast_visitor::graph, this);
+    return CXChildVisit_Continue;
+}
+
+CXChildVisitResult
 ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 {
     if(clang_Location_isInSystemHeader( clang_getCursorLocation( cursor ) ) != 0 )
@@ -886,24 +1089,47 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         return CXChildVisit_Continue;
     }
 
+    const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
+    vector_sentry<cursor_location> ancestor_matches_sentry(std::ref(this->_ancestor_matches));
+
     if (this->_policy)
     {
         const cursor_location cursor_loc = cursor_location(cursor);
-        if (!this->_policy->filter().parse_file(cursor_loc.file()))
-        {
-            return CXChildVisit_Continue;
-        }
 
         if (this->_policy->print_ast())
         {
             ::print_cursor(cursor, parent_cursor, this->_level);
         }
+
+        if (this->_policy->ancestor_match())
+        {
+            if (this->_policy->ancestor_match().value() != cursor_kind &&
+                this->_ancestor_matches.empty())
+            {
+                // Not an ancesestor match and the ancestor has not
+                // been found yet, so parse deeper.
+                clang_visitChildren(cursor, &ast_visitor::graph, this);
+                return CXChildVisit_Continue;
+            }
+
+            // At this point either the current cursor is the kind
+            // we're looking for, or we already have an ancestor match
+            // so proceed with graphing.
+
+            if (cursor_kind == this->_policy->ancestor_match().value())
+            {
+                ancestor_matches_sentry.push(cursor_loc);
+            }
+        }
+
+        if (this->_policy->graph_raw())
+        {
+            return this->graph_raw(cursor, parent_cursor);
+        }
     }
 
     vector_sentry<name_decl> name_sentry(std::ref(this->_names));
     vector_sentry<function_decl> function_def_sentry(std::ref(this->_function_definitions));
-
-    const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
 
     switch (cursor_kind)
     {
@@ -1660,6 +1886,58 @@ ast_visitor::node_exists_by_usr(const std::string & label,
     return static_cast<bool>(this->_mgclient->FetchOne());
 }
 
+std::optional<bool>
+ast_visitor::node_exists(const CXCursorKind kind,
+                         const ngclang::cursor_location & location)
+{
+    mg::Map query_params(4);
+    query_params.Insert("kind", mg::Value(kind));
+    query_params.Insert("file", mg::Value(location.file()));
+    query_params.Insert("line", mg::Value(location.line()));
+    query_params.Insert("column", mg::Value(location.column()));
+
+    std::string cypher = "match (c {kind: $kind, file: $file, line: $line, column: $column}) return c";
+
+    ngmg::statement_executor executor(std::ref(*this->_mgclient));
+    executor.execute(cypher, query_params.AsConstMap());
+
+    const auto maybe_result = this->_mgclient->FetchOne();
+    if (!maybe_result || maybe_result->size() < 1)
+    {
+        return std::optional<bool> {};
+    }
+
+    const auto result = *maybe_result;
+    const auto value = result[0];
+    if (value.type() != mg::Value::Type::Node)
+    {
+        return std::optional<bool> {};
+    }
+
+    const auto node = value.ValueNode();
+    const auto properties = node.properties();
+    const auto visited_property = properties.find(visited_prop_name);
+    if (visited_property == properties.end())
+    {
+        throw std::logic_error("missing visited property");
+    }
+
+    if ((*visited_property).second.type() != mg::Value::Type::Bool)
+    {
+        throw std::logic_error("visited value type is not bool");
+    }
+
+    const std::optional<bool> ret {(*visited_property).second.ValueBool()};
+
+    const auto empty_result = this->_mgclient->FetchOne();
+    if (empty_result)
+    {
+        throw std::logic_error("more than one node matched query");
+    }
+
+    return ret;
+}
+
 class compile_command
 {
     public:
@@ -1793,6 +2071,8 @@ int main(int argc, char ** argv)
         {"src-dir", required_argument, nullptr, 0},
         {"src-tree", required_argument, nullptr, 1},
         {"src-file", required_argument, nullptr, 2},
+        {"raw", no_argument, nullptr,3},
+        {"ancestor", required_argument, nullptr, 4},
         {0,0,0,0}
     };
 
@@ -1800,7 +2080,7 @@ int main(int argc, char ** argv)
     int option_index;
     for(;;)
     {
-        switch(::getopt_long(argc, argv, "s:t:d:f:ph",
+        switch(::getopt_long(argc, argv, "s:t:d:f:phr",
                              long_options, &option_index))
         {
             case 'd':
@@ -1847,6 +2127,24 @@ int main(int argc, char ** argv)
             {
                 policy.filter().push_back_src_file(optarg);
                 continue;
+            }
+            case 3:
+            {
+                policy.graph_raw(true);
+                continue;
+            }
+            case 4:
+            {
+                const std::string ancestor = optarg;
+                if (ancestor == "CallExpr")
+                {
+                    policy.ancestor_match(CXCursor_CallExpr);
+                    continue;
+                }
+                else
+                {
+                    std::cerr << "unknown ancestor kind\n";
+                }
             }
             case -1:
             {

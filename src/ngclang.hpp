@@ -1,3 +1,6 @@
+#ifndef NGCLANG_HPP
+#define NGCLANG_HPP
+
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 #include <string>
@@ -68,6 +71,8 @@ namespace ngclang
         explicit
         universal_symbol_reference(CXCursor cursor);
 
+        universal_symbol_reference() = default;
+
         const std::string &
         string() const noexcept;
 
@@ -76,6 +81,28 @@ namespace ngclang
         std::string _string;
     };
 
+    class cursor_location
+    {
+    public:
+
+        explicit
+        cursor_location(CXCursor c);
+
+        const std::string &
+        file () const noexcept;
+
+        int
+        line() const noexcept;
+
+        int
+        column() const noexcept;
+
+        private:
+
+        std::string _file;
+        unsigned int _line = {};
+        unsigned int _column = {};
+    };
 
     struct dispose_string
     {
@@ -117,3 +144,5 @@ namespace ngclang
     using string_t = ngclang::object<CXString, ngclang::dispose_string>;
     using overridden_cursors_t = ngclang::object<CXCursor*, ngclang::dispose_overridden_cursors>;
 }
+
+#endif

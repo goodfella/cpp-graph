@@ -6,9 +6,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_library(ngclang
   src/ngclang.cpp)
 
+set_property(TARGET ngclang PROPERTY CXX_STANDARD 23)
+
 target_link_libraries(ngclang
   PRIVATE
-  clang-14)
+  clang-18)
 
 target_compile_options(ngclang
   PRIVATE
@@ -17,7 +19,7 @@ target_compile_options(ngclang
 
 target_include_directories(ngclang
   PRIVATE
-  /usr/lib/llvm-14/include)
+  /usr/lib/llvm-18/include)
 
 file(READ src/help.txt HELP_TEXT)
 configure_file(src/help.cpp.in src/generated/help.cpp @ONLY)
@@ -25,7 +27,17 @@ configure_file(src/help.cpp.in src/generated/help.cpp @ONLY)
 add_executable(cpp-graph
   src/cpp-graph.cpp
   src/statement_executor.cpp
-  src/generated/help.cpp)
+  src/generated/help.cpp
+  src/raw_node.cpp
+  src/memgraph/cypher.cpp
+  src/memgraph/cypher/property.cpp
+  src/memgraph/cypher/property_set.cpp
+  src/memgraph/cypher/label.cpp
+  src/memgraph/cypher/variable.cpp
+  src/memgraph/cypher/node_expression.cpp
+  src/memgraph/cypher/relationship_expression.cpp
+  src/memgraph/cypher/return_clause.cpp
+  src/memgraph/cypher/set_clause.cpp)
 
 target_compile_options(cpp-graph
   PRIVATE
@@ -36,6 +48,5 @@ set_property(TARGET cpp-graph PROPERTY CXX_STANDARD 23)
 
 target_link_libraries(cpp-graph
   PRIVATE
-  clang-14
   mgclient
   ngclang)
