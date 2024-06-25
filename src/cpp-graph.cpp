@@ -3,6 +3,7 @@
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 #include <cstring>
+#include "memgraph/cypher.hpp"
 #include <exception>
 #include <filesystem>
 #include <functional>
@@ -10,48 +11,22 @@
 #include "help.hpp"
 #include <iostream>
 #include <memory>
+#include "memgraph/cypher/property.hpp"
+#include "memgraph/cypher/property_set.hpp"
 #include "ngclang.hpp"
 #include <mgclient.hpp>
 #include <optional>
 #include <sstream>
 #include "statement_executor.hpp"
 #include <string>
+#include <string_view>
 #include <unistd.h>
 #include <vector>
 
-class field_name
-{
-    public:
-
-    virtual
-    std::string
-    to_string() const = 0;
-};
-
-template <std::size_t N>
-struct fixed_string
-{
-    constexpr fixed_string(char const (&s) [N]) {
-        std::copy(s, s + N, this->string.begin());
-    }
-
-    std::array<char, N> string;
-};
-
-template <fixed_string str>
-struct field_name_template: public field_name
-{
-    public:
-    
-    std::string
-    to_string() const override
-    {
-        return std::string(str.string.data());
-    }
-};
-
-field_name_template<"field"> f;
-
+constexpr std::string_view kind_prop_name = "kind";
+constexpr std::string_view line_prop_name = "line";
+constexpr std::string_view column_prop_name = "column";
+constexpr std::string_view file_prop_name = "file";
 
 class memgraph_init
 {
@@ -562,10 +537,24 @@ class ast_visitor_policy
     void
     print_ast(bool print) noexcept;
 
+    bool
+    graph_raw() const noexcept;
+
+    void
+    graph_raw(bool graph_raw) noexcept;
+
+    const std::optional<CXCursorKind> &
+    ancestor_match() const noexcept;
+
+    void
+    ancestor_match(CXCursorKind) noexcept;
+
     private:
 
     ast_visitor_filter _filter;
     bool _print_ast = false;
+    bool _graph_raw = false;
+    std::optional<CXCursorKind> _ancestor_match;
 };
 
 const ast_visitor_filter &
@@ -590,6 +579,30 @@ void
 ast_visitor_policy::print_ast(bool print) noexcept
 {
     this->_print_ast = print;
+}
+
+bool
+ast_visitor_policy::graph_raw() const noexcept
+{
+    return this->_graph_raw;
+}
+
+void
+ast_visitor_policy::graph_raw(bool graph_raw) noexcept
+{
+    this->_graph_raw = graph_raw;
+}
+
+const std::optional<CXCursorKind> &
+ast_visitor_policy::ancestor_match() const noexcept
+{
+    return this->_ancestor_match;
+}
+
+void
+ast_visitor_policy::ancestor_match(CXCursorKind kind) noexcept
+{
+    this->_ancestor_match = kind;
 }
 
 void
@@ -777,6 +790,10 @@ class ast_visitor
     graph (CXCursor cursor,
            CXCursor parent_cursor);
 
+    CXChildVisitResult
+    graph_raw(CXCursor cursor,
+              CXCursor parent_cursor);
+
     bool
     graph_parent(CXCursor cursor,
                  CXCursor parent_cursor);
@@ -852,11 +869,18 @@ class ast_visitor
     node_exists_by_usr(const std::string & label,
                        const std::string & universal_symbol_reference);
 
+    bool
+    node_exists(const CXCursorKind kind,
+                const cursor_location & location);
+
 
     std::vector<name_decl> _names;
     mg::Client * const _mgclient = nullptr;
     ast_visitor_policy const * _policy = nullptr;
     std::vector<function_decl> _function_definitions;
+    std::vector<cursor_location> _ancestor_matches;
+
+    ngmg::cypher::property_set _child_prop_set = {};
     unsigned int _level = 0;
 };
 
@@ -879,12 +903,142 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor, CXClientData client_
 }
 
 CXChildVisitResult
+ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
+{
+    const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
+    const cursor_location cursor_loc = cursor_location(cursor);
+
+    if (this->node_exists(cursor_kind, cursor_loc))
+    {
+        // cursor is already graphed, so move on
+        return CXChildVisit_Continue;
+    }
+
+    const std::string kind_spelling = [cursor_kind] () {
+
+        std::string spelling;
+
+        // Handle any spellings that are not valid labels
+        switch(cursor_kind)
+        {
+            case CXCursor_CXXBaseSpecifier:
+            {
+                spelling = "CXXBaseClassSpecifier";
+                break;
+            }
+            case CXCursor_UnexposedAttr:
+            {
+                spelling = "UnexposedAttr";
+                break;
+            }
+            case CXCursor_CXXOverrideAttr:
+            {
+                spelling = "CXXOverrideAttr";
+                break;
+            }
+            case CXCursor_CXXFinalAttr:
+            {
+                spelling = "CXXFinalAttr";
+                break;
+            }
+            case CXCursor_AlignedAttr:
+            {
+                spelling = "AlignedAttr";
+                break;
+            }
+            default:
+            {
+                const ngclang::string_t clang_str = clang_getCursorKindSpelling(cursor_kind);
+                spelling = ngclang::to_string(clang_str.get());
+                break;
+            }
+        }
+
+        std::stringstream s;
+        s << spelling << '_' << cursor_kind;
+        return s.str();
+    }();
+
+    static ngmg::cypher::property<int> child_kind_prop {kind_prop_name};
+    static ngmg::cypher::property<int> child_line_prop {line_prop_name};
+    static ngmg::cypher::property<int> child_column_prop {column_prop_name};
+    static ngmg::cypher::property<std::string> child_file_prop {file_prop_name};
+
+    static ngmg::cypher::property<int> parent_kind_prop {kind_prop_name};
+    static ngmg::cypher::property<int> parent_line_prop {line_prop_name};
+    static ngmg::cypher::property<int> parent_column_prop {column_prop_name};
+    static ngmg::cypher::property<std::string> parent_file_prop {file_prop_name};
+
+    static auto child_props = std::tie(child_kind_prop,
+                                       child_file_prop,
+                                       child_line_prop,
+                                       child_column_prop);
+
+    {
+        child_kind_prop.value(cursor_kind);
+        child_file_prop.value(cursor_loc.file());
+        child_line_prop.value(cursor_loc.line());
+        child_column_prop.value(cursor_loc.column());
+
+        const ngmg::cypher::label kind_label(kind_spelling);
+
+        const ngmg::cypher::node_expression node_expr{std::cref(kind_label), child_props};
+        ngmg::cypher::execute(*this->_mgclient, ngmg::cypher::create_clause(std::tie(node_expr)));
+    }
+
+    {
+        const CXCursorKind parent_kind = clang_getCursorKind(parent_cursor);
+        const cursor_location parent_loc = cursor_location(parent_cursor);
+
+        parent_kind_prop.value(parent_kind);
+        parent_file_prop.value(parent_loc.file());
+        parent_line_prop.value(parent_loc.line());
+        parent_column_prop.value(parent_loc.column());
+
+        const ngmg::cypher::variable child_var("c");
+        const ngmg::cypher::variable parent_var("p");
+        const ngmg::cypher::label parent_label("PARENT");
+
+        const ngmg::cypher::relationship_expression relationship_expr(std::cref(child_var),
+                                                                      std::cref(parent_label),
+                                                                      std::cref(parent_var),
+                                                                      ngmg::cypher::relationship_type::directed);
+
+        std::stringstream ss;
+        ss << "match (c ";
+        ngmg::cypher::write_properties(ss,
+                                       child_kind_prop,
+                                       child_file_prop,
+                                       child_line_prop,
+                                       child_column_prop);
+        ss << "), (p ";
+        ngmg::cypher::write_properties(ss,
+                                       parent_kind_prop,
+                                       parent_file_prop,
+                                       parent_line_prop,
+                                       parent_column_prop);
+        ss.put(')');
+        ss << " merge ";
+        relationship_expr.write(ss);
+
+        ngmg::statement_executor executor(std::ref(*this->_mgclient));
+        executor.execute(ss.str());
+    }
+
+    clang_visitChildren(cursor, &ast_visitor::graph, this);
+    return CXChildVisit_Continue;
+}
+
+CXChildVisitResult
 ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 {
     if(clang_Location_isInSystemHeader( clang_getCursorLocation( cursor ) ) != 0 )
     {
         return CXChildVisit_Continue;
     }
+
+    const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
+    vector_sentry<cursor_location> ancestor_matches_sentry(std::ref(this->_ancestor_matches));
 
     if (this->_policy)
     {
@@ -898,12 +1052,36 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         {
             ::print_cursor(cursor, parent_cursor, this->_level);
         }
+
+        if (this->_policy->ancestor_match())
+        {
+            if (this->_policy->ancestor_match().value() != cursor_kind &&
+                this->_ancestor_matches.empty())
+            {
+                // Not an ancesestor match and the ancestor has not
+                // been found yet, so parse deeper.
+                clang_visitChildren(cursor, &ast_visitor::graph, this);
+                return CXChildVisit_Continue;
+            }
+
+            // At this point either the current cursor is the kind
+            // we're looking for, or we already have an ancestor match
+            // so proceed with graphing.
+
+            if (cursor_kind == this->_policy->ancestor_match().value())
+            {
+                ancestor_matches_sentry.push(cursor_loc);
+            }
+        }
+
+        if (this->_policy->graph_raw())
+        {
+            return this->graph_raw(cursor, parent_cursor);
+        }
     }
 
     vector_sentry<name_decl> name_sentry(std::ref(this->_names));
     vector_sentry<function_decl> function_def_sentry(std::ref(this->_function_definitions));
-
-    const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
 
     switch (cursor_kind)
     {
@@ -1660,6 +1838,23 @@ ast_visitor::node_exists_by_usr(const std::string & label,
     return static_cast<bool>(this->_mgclient->FetchOne());
 }
 
+bool
+ast_visitor::node_exists(const CXCursorKind kind,
+                         const cursor_location & location)
+{
+    mg::Map query_params(4);
+    query_params.Insert("kind", mg::Value(kind));
+    query_params.Insert("file", mg::Value(location.file()));
+    query_params.Insert("line", mg::Value(location.line()));
+    query_params.Insert("column", mg::Value(location.column()));
+
+    std::string cypher = "match (c {kind: $kind, file: $file, line: $line, column: $column}) return c";
+
+    ngmg::statement_executor executor(std::ref(*this->_mgclient));
+    executor.execute(cypher, query_params.AsConstMap());
+    return static_cast<bool>(this->_mgclient->FetchOne());
+}
+
 class compile_command
 {
     public:
@@ -1793,6 +1988,8 @@ int main(int argc, char ** argv)
         {"src-dir", required_argument, nullptr, 0},
         {"src-tree", required_argument, nullptr, 1},
         {"src-file", required_argument, nullptr, 2},
+        {"raw", no_argument, nullptr,3},
+        {"ancestor", required_argument, nullptr, 4},
         {0,0,0,0}
     };
 
@@ -1800,7 +1997,7 @@ int main(int argc, char ** argv)
     int option_index;
     for(;;)
     {
-        switch(::getopt_long(argc, argv, "s:t:d:f:ph",
+        switch(::getopt_long(argc, argv, "s:t:d:f:phr",
                              long_options, &option_index))
         {
             case 'd':
@@ -1847,6 +2044,24 @@ int main(int argc, char ** argv)
             {
                 policy.filter().push_back_src_file(optarg);
                 continue;
+            }
+            case 3:
+            {
+                policy.graph_raw(true);
+                continue;
+            }
+            case 4:
+            {
+                const std::string ancestor = optarg;
+                if (ancestor == "CallExpr")
+                {
+                    policy.ancestor_match(CXCursor_CallExpr);
+                    continue;
+                }
+                else
+                {
+                    std::cerr << "unknown ancestor kind\n";
+                }
             }
             case -1:
             {

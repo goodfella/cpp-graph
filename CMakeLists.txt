@@ -6,6 +6,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_library(ngclang
   src/ngclang.cpp)
 
+set_property(TARGET ngclang PROPERTY CXX_STANDARD 23)
+
 target_link_libraries(ngclang
   PRIVATE
   clang-14)
@@ -25,7 +27,16 @@ configure_file(src/help.cpp.in src/generated/help.cpp @ONLY)
 add_executable(cpp-graph
   src/cpp-graph.cpp
   src/statement_executor.cpp
-  src/generated/help.cpp)
+  src/generated/help.cpp
+  src/memgraph/cypher.cpp
+  src/memgraph/cypher/property_cache.cpp
+  src/memgraph/cypher/property.cpp
+  src/memgraph/cypher/property_set.cpp
+  src/memgraph/cypher/label.cpp
+  src/memgraph/cypher/label_set.cpp
+  src/memgraph/cypher/variable.cpp
+  src/memgraph/cypher/node_expression.cpp
+  src/memgraph/cypher/relationship_expression.cpp)
 
 target_compile_options(cpp-graph
   PRIVATE
