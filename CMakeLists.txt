@@ -32,9 +32,12 @@ add_executable(cpp-graph
   src/raw_node.cpp
   src/location_properties.cpp
   src/name_properties.cpp
+  src/is_template_property.cpp
   src/universal_symbol_reference_property.cpp
   src/namespace_node.cpp
   src/namespace_decl_node.cpp
+  src/class_decl_node.cpp
+  src/class_node.cpp
   src/memgraph/cypher.cpp
   src/memgraph/cypher/property.cpp
   src/memgraph/cypher/property_set.cpp
