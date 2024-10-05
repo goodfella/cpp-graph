@@ -28,7 +28,13 @@ add_executable(cpp-graph
   src/cpp-graph.cpp
   src/statement_executor.cpp
   src/generated/help.cpp
+  src/edge_labels.cpp
   src/raw_node.cpp
+  src/location_properties.cpp
+  src/name_properties.cpp
+  src/universal_symbol_reference_property.cpp
+  src/namespace_node.cpp
+  src/namespace_decl_node.cpp
   src/memgraph/cypher.cpp
   src/memgraph/cypher/property.cpp
   src/memgraph/cypher/property_set.cpp

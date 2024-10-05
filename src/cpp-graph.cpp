@@ -3,6 +3,7 @@
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 #include <cstring>
+#include "edge_labels.hpp"
 #include <exception>
 #include <filesystem>
 #include <functional>
@@ -14,6 +15,8 @@
 #include "memgraph/cypher/property.hpp"
 #include "memgraph/cypher/property_set.hpp"
 #include <mgclient.hpp>
+#include "namespace_node.hpp"
+#include "namespace_decl_node.hpp"
 #include "ngclang.hpp"
 #include "node_property_names.hpp"
 #include <optional>
@@ -61,6 +64,11 @@ class cursor_location
     explicit
     cursor_location(CXCursor c);
 
+    cursor_location(const int line, std::string_view file, const int column);
+
+    explicit
+    cursor_location(const ngclang::cursor_location & l);
+
     const std::string &
     file () const noexcept;
 
@@ -99,6 +107,18 @@ cursor_location::cursor_location(CXCursor cursor)
     ngclang::string_t path = clang_File_tryGetRealPathName(file);
     this->_file = ngclang::to_string(path.get());
 }
+
+cursor_location::cursor_location(const ngclang::cursor_location & l):
+    _file(l.file()),
+    _line(l.line()),
+    _column(l.column())
+{}
+
+cursor_location::cursor_location(const int line, std::string_view file, const int column):
+    _file(file),
+    _line(line),
+    _column(column)
+{}
 
 const std::string &
 cursor_location::file() const noexcept
@@ -221,16 +241,15 @@ class name_decl
 {
     public:
     name_decl(const std::string & name,
-              const cursor_location location);
+              const cursor_location & location);
+
+    name_decl(const std::string & name,
+              const ngclang::cursor_location & location);
+
+    name_decl(std::string_view name);
 
     std::string
     name() const;
-
-    unsigned int
-    line() const;
-
-    unsigned int
-    column() const;
 
     private:
 
@@ -239,27 +258,20 @@ class name_decl
 };
 
 name_decl::name_decl(const std::string & name,
-                     const cursor_location location):
+                     const cursor_location & location):
     _name(name),
     _location(location)
+{}
+
+name_decl::name_decl(std::string_view name):
+    _name(name),
+    _location(cursor_location {0, "", 0})
 {}
 
 std::string
 name_decl::name() const
 {
     return this->_name;
-}
-
-unsigned int
-name_decl::line() const
-{
-    return this->_location.line();
-}
-
-unsigned int
-name_decl::column() const
-{
-    return this->_location.column();
 }
 
 class function_decl
@@ -1236,122 +1248,75 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 bool
 ast_visitor::graph_parent(CXCursor cursor, CXCursor parent_cursor)
 {
-    const auto cursor_usr = ngclang::universal_symbol_reference(cursor);
+    const universal_symbol_reference_property cursor_usr {cursor};
     const auto parent_usr = [&cursor, &parent_cursor]() {
         CXCursor semantic_parent = clang_getCursorSemanticParent(cursor);
         if (clang_Cursor_isNull(semantic_parent))
         {
-            return ngclang::universal_symbol_reference(parent_cursor);
+            return universal_symbol_reference_property {parent_cursor};
         }
         else
         {
-            return ngclang::universal_symbol_reference(semantic_parent);
+            return universal_symbol_reference_property {semantic_parent};
         }
     }();
 
-    if (this->edge_exists(parent_usr, "HAS", cursor_usr))
+    if (parent_usr.prop.value().empty() || cursor_usr.prop.value().empty())
     {
         return true;
     }
 
-    mg::Map query_params(2);
-    query_params.Insert("parent_usr", mg::Value(parent_usr.string()));
-    query_params.Insert("child_usr", mg::Value(cursor_usr.string()));
+    if (ngmg::cypher::relationship_exists(*this->_mgclient,
+                                          parent_usr.tuple(),
+                                          cursor_usr.tuple(),
+                                          has_label))
+    {
+        return true;
+    }
 
-    std::stringstream ss;
-    ss << "match (p), (c) where"
-       << " p.universal_symbol_reference = $parent_usr"
-       << " and c.universal_symbol_reference = $child_usr"
-       << " create (p)-[:HAS]->(c)";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(ss.str(), query_params.AsConstMap());
+    ngmg::cypher::create_relate(*this->_mgclient,
+                                has_label,
+                                parent_usr.tuple(),
+                                cursor_usr.tuple());
     return true;
 }
 
 bool
 ast_visitor::graph_namespace(vector_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
 {
-    const cursor_location cursor_loc = cursor_location(cursor);
-    const std::string name = ngclang::to_string(cursor, &clang_getCursorSpelling);
-    const std::string usr = ngclang::to_string(cursor, &clang_getCursorUSR);
-    name_sentry.push(name_decl{name, cursor_loc});
+    namespace_decl_node namespace_decl;
+    namespace_decl.location.fill(cursor);
 
+    if (ngmg::cypher::node_exists(*this->_mgclient,
+                                  namespace_decl.label(),
+                                  namespace_decl.location.tuple()))
     {
-        if (this->node_exists_by_location("NamespaceDeclaration", cursor_loc))
-        {
-            return true;
-        }
-
-        // Create the NamespaceDeclaration
-        mg::Map query_params(5);
-        query_params.Insert("name", mg::Value(name));
-        query_params.Insert("file", mg::Value(cursor_loc.file()));
-        query_params.Insert("line", mg::Value((int) cursor_loc.line()));
-        query_params.Insert("column", mg::Value(cursor_loc.column()));
-        query_params.Insert("fq_name", mg::Value(this->fully_qualified_namespace()));
-                        
-        std::stringstream ss;
-        ss << "create(:NamespaceDeclaration {"
-           << "name: $name,"
-           << "file: $file,"
-           << "line: $line,"
-           << "column: $column,"
-           << "fq_name: $fq_name})";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        executor.execute(ss.str(), query_params.AsConstMap());
+        return true;
     }
 
-    // Create the Namespace node if it doesn't already exist
-    const bool namespace_exists = [this, &usr]() {
-        mg::Map query_params(1);
-        query_params.Insert("universal_symbol_reference", mg::Value(usr));
+    name_sentry.push(name_decl{ngclang::to_string(cursor, &clang_getCursorDisplayName)});
+    namespace_decl.names.fill(cursor, this->fully_qualified_namespace());
 
-        std::stringstream ss;
-        ss << "match (n:Namespace) where n.universal_symbol_reference = $universal_symbol_reference return n";
+    ngmg::cypher::create_node(*this->_mgclient,
+                              namespace_decl.label(),
+                              namespace_decl.tuple());
 
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        executor.execute(ss.str(), query_params.AsConstMap());
-        return static_cast<bool>(this->_mgclient->FetchOne());
-    }();
-
-    if (!namespace_exists)
+    namespace_node namespace_node;
+    namespace_node.usr.fill(cursor);
+    if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                   namespace_node.label(),
+                                   namespace_node.usr.tuple()))
     {
-        mg::Map query_params(3);
-        query_params.Insert("fq_name", mg::Value(this->fully_qualified_namespace()));
-        query_params.Insert("name", mg::Value(name));
-        query_params.Insert("universal_symbol_reference", mg::Value(usr));
-                        
-        std::stringstream ss;
-        ss << "create(:Namespace {"
-           << "name: $name,"
-           << "fq_name: $fq_name,"
-           << "universal_symbol_reference: $universal_symbol_reference})";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        executor.execute(ss.str(), query_params.AsConstMap());
+        namespace_node.names.fill(cursor, this->fully_qualified_namespace());
+        ngmg::cypher::create_node(*this->_mgclient,
+                                  namespace_node.label(),
+                                  namespace_node.tuple());
     }
 
-    {
-        // Create NamespaceDeclaration to Namespace relationship
-        mg::Map query_params(4);
-        query_params.Insert("universal_symbol_reference", mg::Value(usr));
-        query_params.Insert("file", mg::Value(cursor_loc.file()));
-        query_params.Insert("line", mg::Value(cursor_loc.line()));
-        query_params.Insert("column", mg::Value(cursor_loc.column()));
-
-        std::stringstream ss;
-        ss << "match (n:Namespace), (nd:NamespaceDeclaration) where"
-           << " n.universal_symbol_reference = $universal_symbol_reference"
-           << " and nd.line = $line"
-           << " and nd.column = $column"
-           << " and nd.file = $file"
-           << " create (nd)-[:DECLARES]->(n)";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        executor.execute(ss.str(), query_params.AsConstMap());
-    }
+    ngmg::cypher::create_relate(*this->_mgclient,
+                                declares_label,
+                                namespace_decl.location.tuple(),
+                                namespace_node.usr.tuple());
 
     return this->graph_parent(cursor, parent_cursor);
 }
