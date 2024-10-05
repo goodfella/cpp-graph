@@ -13,6 +13,39 @@ ngclang::universal_symbol_reference::string() const noexcept
     return this->_string;
 }
 
+ngclang::cursor_location::cursor_location(CXCursor cursor)
+{
+    const CXSourceLocation location = clang_getCursorLocation(cursor);
+
+    CXFile file;
+    clang_getExpansionLocation(location,
+                               &file,
+                               &this->_line,
+                               &this->_column,
+                               nullptr);
+
+    ngclang::string_t path = clang_File_tryGetRealPathName(file);
+    this->_file = ngclang::to_string(path.get());
+}
+
+const std::string &
+ngclang::cursor_location::file() const noexcept
+{
+    return this->_file;
+}
+
+int
+ngclang::cursor_location::line() const noexcept
+{
+    return this->_line;
+}
+
+int
+ngclang::cursor_location::column() const noexcept
+{
+    return this->_column;
+}
+
 std::string
 ngclang::to_string(CXString cxstring)
 {

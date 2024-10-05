@@ -40,6 +40,9 @@ namespace ngmg
         void
         execute(const std::string & statement, const mg::ConstMap & params);
 
+        mg::Client &
+        client() noexcept;
+
         private:
 
         mg::Client * _client;

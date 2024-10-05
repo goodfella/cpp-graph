@@ -33,6 +33,12 @@ ngmg::statement_executor::execute(const std::string & statement, const mg::Const
     }
 }
 
+mg::Client &
+ngmg::statement_executor::client() noexcept
+{
+    return *(this->_client);
+}
+
 ngmg::statement_executor::~statement_executor()
 {
     if (this->_discard_all)
