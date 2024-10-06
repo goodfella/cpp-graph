@@ -861,28 +861,12 @@ class ast_visitor
                 const cursor_location & location);
 
     bool
-    edge_exists(const std::string & src_label,
-                const ngclang::universal_symbol_reference & src,
-                const std::string & dest_label,
-                const ngclang::universal_symbol_reference & dst,
-                const std::string & edge_label);
-
-    bool
-    edge_exists(const ngclang::universal_symbol_reference & src,
-                const std::string & edge_label,
-                const ngclang::universal_symbol_reference & dst);
-
-    bool
     node_exists_by_location(const std::string & label,
                             const cursor_location & location);
 
     bool
     node_exists_by_usr(const std::string & label,
                        const std::string & universal_symbol_reference);
-
-    std::optional<bool>
-    node_exists(const CXCursorKind kind,
-                const ngclang::cursor_location & location);
 
     std::vector<name_decl> _names;
     mg::Client * const _mgclient = nullptr;
@@ -1723,51 +1707,6 @@ ast_visitor::edge_exists(const std::string & label,
 }
 
 bool
-ast_visitor::edge_exists(const std::string & src_label,
-                         const ngclang::universal_symbol_reference & src,
-                         const std::string & dst_label,
-                         const ngclang::universal_symbol_reference & dst,
-                         const std::string & edge_label)
-{
-    // Create namespace to class relationship
-    mg::Map query_params(2);
-    query_params.Insert("src_usr", mg::Value(src.string()));
-    query_params.Insert("dst_usr", mg::Value(dst.string()));
-
-    std::stringstream ss;
-    ss << "match (d:"
-       << dst_label
-       << " {universal_symbol_reference: $dst_usr})<-[:"
-       << edge_label << "]-(s:"
-       << src_label
-       << " {universal_symbol_reference: $src_usr}) return s";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(ss.str(), query_params.AsConstMap());
-    return static_cast<bool>(this->_mgclient->FetchOne());
-}
-
-bool
-ast_visitor::edge_exists(const ngclang::universal_symbol_reference & src,
-                         const std::string & edge_label,
-                         const ngclang::universal_symbol_reference & dst)
-{
-    // Create namespace to class relationship
-    mg::Map query_params(2);
-    query_params.Insert("src_usr", mg::Value(src.string()));
-    query_params.Insert("dst_usr", mg::Value(dst.string()));
-
-    std::stringstream ss;
-    ss << "match (d {universal_symbol_reference: $dst_usr})<-[:"
-       << edge_label << "]-(s"
-       << " {universal_symbol_reference: $src_usr}) return s";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(ss.str(), query_params.AsConstMap());
-    return static_cast<bool>(this->_mgclient->FetchOne());
-}
-
-bool
 ast_visitor::node_exists_by_location(const std::string & label,
                                      const cursor_location & location)
 {
@@ -1801,58 +1740,6 @@ ast_visitor::node_exists_by_usr(const std::string & label,
     ngmg::statement_executor executor(std::ref(*this->_mgclient));
     executor.execute(ss.str(), query_params.AsConstMap());
     return static_cast<bool>(this->_mgclient->FetchOne());
-}
-
-std::optional<bool>
-ast_visitor::node_exists(const CXCursorKind kind,
-                         const ngclang::cursor_location & location)
-{
-    mg::Map query_params(4);
-    query_params.Insert("kind", mg::Value(kind));
-    query_params.Insert("file", mg::Value(location.file()));
-    query_params.Insert("line", mg::Value(location.line()));
-    query_params.Insert("column", mg::Value(location.column()));
-
-    std::string cypher = "match (c {kind: $kind, file: $file, line: $line, column: $column}) return c";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(cypher, query_params.AsConstMap());
-
-    const auto maybe_result = this->_mgclient->FetchOne();
-    if (!maybe_result || maybe_result->size() < 1)
-    {
-        return std::optional<bool> {};
-    }
-
-    const auto result = *maybe_result;
-    const auto value = result[0];
-    if (value.type() != mg::Value::Type::Node)
-    {
-        return std::optional<bool> {};
-    }
-
-    const auto node = value.ValueNode();
-    const auto properties = node.properties();
-    const auto visited_property = properties.find(visited_prop_name);
-    if (visited_property == properties.end())
-    {
-        throw std::logic_error("missing visited property");
-    }
-
-    if ((*visited_property).second.type() != mg::Value::Type::Bool)
-    {
-        throw std::logic_error("visited value type is not bool");
-    }
-
-    const std::optional<bool> ret {(*visited_property).second.ValueBool()};
-
-    const auto empty_result = this->_mgclient->FetchOne();
-    if (empty_result)
-    {
-        throw std::logic_error("more than one node matched query");
-    }
-
-    return ret;
 }
 
 class compile_command
