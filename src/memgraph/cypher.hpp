@@ -392,9 +392,9 @@ namespace ngmg::cypher
         ngmg::cypher::PropertyTuple EdgeProps = std::tuple<>>
     bool
     relationship_exists(mg::Client & client,
+                        const ngmg::cypher::label & edge_label,
                         const SrcProps & src_props,
                         const DstProps & dst_props,
-                        const ngmg::cypher::label & edge_label,
                         const ngmg::cypher::relationship_type type = ngmg::cypher::relationship_type::directed,
                         const EdgeProps & edge_props = std::tuple<> {})
     {
@@ -409,6 +409,65 @@ namespace ngmg::cypher
         const ngmg::cypher::node_expression dst_node_expr
             {
                 std::cref(dst_var),
+                dst_props
+            };
+
+        const ngmg::cypher::relationship_variable rel_var {"r"};
+        const ngmg::cypher::relationship_expression rel_expr
+            {
+                std::cref(rel_var),
+                std::cref(src_node_expr),
+                std::cref(edge_label),
+                std::cref(dst_node_expr),
+                type,
+                edge_props
+            };
+
+        const ngmg::cypher::match_clause match_clause
+            {
+                std::tie(rel_expr)
+            };
+
+        const ngmg::cypher::return_clause return_clause {std::cref(rel_var)};
+
+        ngmg::statement_executor executor(std::ref(client));
+        std::stringstream ss;
+
+        ngmg::cypher::detail::write_clauses(ss, match_clause, return_clause);
+
+        executor.execute(ss.str());
+        const std::optional<mg::Value> relationship =
+            ngmg::cypher::detail::fetch_relationship(executor);
+
+        return relationship.has_value();
+    }
+
+    template <ngmg::cypher::PropertyTuple SrcProps,
+        ngmg::cypher::PropertyTuple DstProps,
+        ngmg::cypher::PropertyTuple EdgeProps = std::tuple<>>
+    bool
+    relationship_exists(mg::Client & client,
+                        const ngmg::cypher::label & edge_label,
+                        const SrcProps & src_props,
+                        const ngmg::cypher::label & src_label,
+                        const DstProps & dst_props,
+                        const ngmg::cypher::label & dst_label,
+                        const ngmg::cypher::relationship_type type = ngmg::cypher::relationship_type::directed,
+                        const EdgeProps & edge_props = std::tuple<> {})
+    {
+        const ngmg::cypher::node_variable src_var {"s"};
+        const ngmg::cypher::node_expression src_node_expr
+            {
+                std::cref(src_var),
+                std::cref(src_label),
+                src_props
+            };
+
+        const ngmg::cypher::node_variable dst_var {"d"};
+        const ngmg::cypher::node_expression dst_node_expr
+            {
+                std::cref(dst_var),
+                std::cref(dst_label),
                 dst_props
             };
 

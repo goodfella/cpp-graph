@@ -1269,9 +1269,9 @@ ast_visitor::graph_parent(CXCursor cursor, CXCursor parent_cursor)
     }
 
     if (ngmg::cypher::relationship_exists(*this->_mgclient,
+                                          has_label,
                                           parent_usr.tuple(),
-                                          cursor_usr.tuple(),
-                                          has_label))
+                                          cursor_usr.tuple()))
     {
         return true;
     }
@@ -1570,27 +1570,26 @@ bool
 ast_visitor::graph_base_class_specifier(CXCursor cursor, CXCursor parent_cursor)
 {
     CXCursor base_cursor = clang_getCursorReferenced(cursor);
-    const auto child_usr = ngclang::universal_symbol_reference(parent_cursor);
-    const auto base_usr = ngclang::universal_symbol_reference(base_cursor);
+    const universal_symbol_reference_property base_usr {base_cursor};
+    const universal_symbol_reference_property child_usr {parent_cursor};
 
-    if(this->edge_exists("Class", child_usr, "Class", base_usr, "INHERITS"))
+    if (ngmg::cypher::relationship_exists(*this->_mgclient,
+                                          inherits_label,
+                                          child_usr.tuple(),
+                                          class_node::label(),
+                                          base_usr.tuple(),
+                                          class_node::label()))
     {
         return true;
     }
 
-    mg::Map query_params(2);
-    query_params.Insert("base_usr", mg::Value(base_usr.string()));
-    query_params.Insert("child_usr", mg::Value(child_usr.string()));
+    ngmg::cypher::create_relate(*this->_mgclient,
+                                inherits_label,
+                                child_usr.tuple(),
+                                class_node::label(),
+                                base_usr.tuple(),
+                                class_node::label());
 
-    std::stringstream ss;
-    ss << "match (c:Class), (b:Class) "
-       << "where "
-       << "c.universal_symbol_reference = $child_usr and "
-       << "b.universal_symbol_reference = $base_usr "
-       << "create (c)-[:INHERITS]->(b)";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(ss.str(), query_params.AsConstMap());
     return true;
 }
 
