@@ -9,6 +9,8 @@
 #include <exception>
 #include <filesystem>
 #include <functional>
+#include "function_node.hpp"
+#include "function_decl_def_node.hpp"
 #include <getopt.h>
 #include "help.hpp"
 #include <iostream>
@@ -856,14 +858,6 @@ class ast_visitor
                    vector_sentry<function_decl> & function_def_sentry,
                    bool & created);
 
-    bool
-    node_exists_by_location(const std::string & label,
-                            const cursor_location & location);
-
-    bool
-    node_exists_by_usr(const std::string & label,
-                       const std::string & universal_symbol_reference);
-
     std::vector<name_decl> _names;
     mg::Client * const _mgclient = nullptr;
     ast_visitor_policy const * _policy = nullptr;
@@ -1277,7 +1271,7 @@ ast_visitor::graph_namespace(vector_sentry<name_decl> & name_sentry, CXCursor cu
     }
 
     name_sentry.push(name_decl{ngclang::to_string(cursor, &clang_getCursorDisplayName)});
-    namespace_decl.names.fill(cursor, this->fully_qualified_namespace());
+    namespace_decl.names.fill_with_fq_name(cursor, this->fully_qualified_namespace());
 
     ngmg::cypher::create_node(*this->_mgclient,
                               namespace_decl.label(),
@@ -1289,7 +1283,7 @@ ast_visitor::graph_namespace(vector_sentry<name_decl> & name_sentry, CXCursor cu
                                    namespace_node.label(),
                                    namespace_node.usr.tuple()))
     {
-        namespace_node.names.fill(cursor, this->fully_qualified_namespace());
+        namespace_node.names.fill_with_fq_name(cursor, this->fully_qualified_namespace());
         ngmg::cypher::create_node(*this->_mgclient,
                                   namespace_node.label(),
                                   namespace_node.tuple());
@@ -1317,31 +1311,18 @@ ast_visitor::graph_function(CXCursor cursor,
     std::string function_def_label;
     function_labels(cursor, &function_label, &function_dec_label, &function_def_label);
 
-    const cursor_location cursor_loc = cursor_location(cursor);
-    const std::string name = ngclang::to_string(cursor, &clang_getCursorSpelling);
-    const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
-    const std::string usr = ngclang::to_string(cursor, &clang_getCursorUSR);
-    const bool is_template = clang_getCursorKind(cursor) == CXCursor_FunctionTemplate;
+    function_node func_node {function_label};
+    func_node.usr.fill(cursor);
 
-    if (!this->node_exists_by_usr(function_label, usr))
+    if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                   func_node.label(),
+                                   func_node.usr.tuple()))
     {
-        mg::Map query_params(5);
-        query_params.Insert("fq_name", mg::Value(this->fully_qualified_namespace() + "::"+ name));
-        query_params.Insert("name", mg::Value(name));
-        query_params.Insert("display_name", mg::Value(display_name));
-        query_params.Insert("universal_symbol_reference", mg::Value(usr));
-        query_params.Insert("is_template", mg::Value(is_template));
-
-        std::stringstream ss;
-        ss << "create(:" << function_label << '{'
-           << "name: $display_name,"
-           << "unqualified_name: $name,"
-           << "fq_name: $fq_name,"
-           << "is_template: $is_template,"
-           << "universal_symbol_reference: $universal_symbol_reference})";
-
-        ngmg::statement_executor executor(std::ref(*this->_mgclient));
-        executor.execute(ss.str(), query_params.AsConstMap());
+        func_node.is_template.fill(cursor);
+        func_node.names.fill_with_fq_namespace(cursor, this->fully_qualified_namespace());
+        ngmg::cypher::create_node(*this->_mgclient,
+                                  func_node.label(),
+                                  func_node.tuple());
         created = true;
     }
 
@@ -1350,89 +1331,46 @@ ast_visitor::graph_function(CXCursor cursor,
         function_decl function_def {cursor};
         function_def_sentry.push(function_def);
 
-        if (!this->node_exists_by_location(function_def_label, cursor_loc))
+        function_decl_def_node func_def_node {function_def_label};
+        func_def_node.location.fill(cursor);
+
+        if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                       func_def_node.label(),
+                                       func_def_node.location.tuple()))
         {
-            {
-                const std::string display_name = ngclang::to_string(cursor, &clang_getCursorDisplayName);
-                mg::Map query_params(4);
-                query_params.Insert("file", mg::Value(cursor_loc.file()));
-                query_params.Insert("line", mg::Value(cursor_loc.line()));
-                query_params.Insert("column", mg::Value(cursor_loc.column()));
-                query_params.Insert("name", mg::Value(display_name));
+            func_def_node.names.fill_with_fq_namespace(cursor, this->fully_qualified_namespace());
+            ngmg::cypher::create_node(*this->_mgclient,
+                                      func_def_node.label(),
+                                      func_def_node.tuple());
 
-                std::stringstream ss;
-                ss << "create(:" << function_def_label <<  '{'
-                   << "file: $file,"
-                   << "line: $line,"
-                   << "column: $column,"
-                   << "name: $name})";
-
-                ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                executor.execute(ss.str(), query_params.AsConstMap());
-            }
-
-            {
-                mg::Map query_params(4);
-                query_params.Insert("universal_symbol_reference", mg::Value(function_def.universal_symbol_reference()));
-                query_params.Insert("file", mg::Value(cursor_loc.file()));
-                query_params.Insert("line", mg::Value(cursor_loc.line()));
-                query_params.Insert("column", mg::Value(cursor_loc.column()));
-
-                std::stringstream ss;
-                ss << "match(f:" << function_label << "), (fd:" << function_def_label << ") where"
-                   << " f.universal_symbol_reference = $universal_symbol_reference"
-                   << " and fd.file = $file"
-                   << " and fd.line = $line"
-                   << " and fd.column = $column"
-                   << " create (fd)-[:DEFINES]->(f)";
-
-                ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                executor.execute(ss.str(), query_params.AsConstMap());
-            }
+            ngmg::cypher::create_relate(*this->_mgclient,
+                                        defines_label,
+                                        func_def_node.location.tuple(),
+                                        func_def_node.label(),
+                                        func_node.usr.tuple(),
+                                        func_node.label());
         }
     }
     else
     {
-        if (!this->node_exists_by_location(function_dec_label, cursor_loc))
+        function_decl_def_node func_decl_node {function_dec_label};
+        func_decl_node.location.fill(cursor);
+
+        if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                       func_decl_node.label(),
+                                       func_decl_node.location.tuple()))
         {
-            {
-                // Create function declaration node
-                mg::Map query_params(4);
-                query_params.Insert("file", mg::Value(cursor_loc.file()));
-                query_params.Insert("line", mg::Value((int) cursor_loc.line()));
-                query_params.Insert("column", mg::Value(cursor_loc.column()));
-                query_params.Insert("name", mg::Value(display_name));
+            func_decl_node.names.fill_with_fq_namespace(cursor, this->fully_qualified_namespace());
+            ngmg::cypher::create_node(*this->_mgclient,
+                                      func_decl_node.label(),
+                                      func_decl_node.tuple());
 
-                std::stringstream ss;
-                ss << "create(:" << function_dec_label << '{'
-                   << "name: $name,"
-                   << "file: $file,"
-                   << "line: $line,"
-                   << "column: $column})";
-
-                ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                executor.execute(ss.str(), query_params.AsConstMap());
-            }
-
-            {
-                // Create function declaration to function relationship
-                mg::Map query_params(4);
-                query_params.Insert("universal_symbol_reference", mg::Value(usr));
-                query_params.Insert("file", mg::Value(cursor_loc.file()));
-                query_params.Insert("line", mg::Value(cursor_loc.line()));
-                query_params.Insert("column", mg::Value(cursor_loc.column()));
-
-                std::stringstream ss;
-                ss << "match (f:" << function_label << "), (fd:" << function_dec_label << ") where"
-                   << " f.universal_symbol_reference = $universal_symbol_reference"
-                   << " and fd.line = $line"
-                   << " and fd.column = $column"
-                   << " and fd.file = $file"
-                   << " create (fd)-[:DECLARES]->(f)";
-
-                ngmg::statement_executor executor(std::ref(*this->_mgclient));
-                executor.execute(ss.str(), query_params.AsConstMap());
-            }
+            ngmg::cypher::create_relate(*this->_mgclient,
+                                        declares_label,
+                                        func_decl_node.location.tuple(),
+                                        func_decl_node.label(),
+                                        func_node.usr.tuple(),
+                                        func_node.label());
         }
     }
 
@@ -1510,7 +1448,7 @@ ast_visitor::graph_class_decl(vector_sentry<name_decl> & name_sentry, CXCursor c
     }
 
     name_sentry.push(name_decl{ngclang::to_string(cursor, &clang_getCursorDisplayName)});
-    class_decl.names.fill(cursor, this->fully_qualified_namespace());
+    class_decl.names.fill_with_fq_name(cursor, this->fully_qualified_namespace());
 
     ngmg::cypher::create_node(*this->_mgclient,
                               class_decl.label(),
@@ -1523,7 +1461,7 @@ ast_visitor::graph_class_decl(vector_sentry<name_decl> & name_sentry, CXCursor c
                                    class_node.label(),
                                    class_node.usr.tuple()))
     {
-        class_node.names.fill(cursor, this->fully_qualified_namespace());
+        class_node.names.fill_with_fq_name(cursor, this->fully_qualified_namespace());
         class_node.is_template.fill(cursor);
         ngmg::cypher::create_node(*this->_mgclient,
                                   class_node.label(),
@@ -1677,42 +1615,6 @@ ast_visitor::fully_qualified_namespace() const
     }
 
     return name;
-}
-
-bool
-ast_visitor::node_exists_by_location(const std::string & label,
-                                     const cursor_location & location)
-{
-    mg::Map query_params(3);
-    query_params.Insert("file", mg::Value(location.file()));
-    query_params.Insert("line", mg::Value(location.line()));
-    query_params.Insert("column", mg::Value(location.column()));
-
-    std::stringstream ss;
-    ss << "match " << '(' << "d:" << label << ')' << " where"
-       << " d.file = $file"
-       << " and d.line = $line"
-       << " and d.column = $column"
-       << " return d";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(ss.str(), query_params.AsConstMap());
-    return static_cast<bool>(this->_mgclient->FetchOne());
-}
-
-bool
-ast_visitor::node_exists_by_usr(const std::string & label,
-                                const std::string & universal_symbol_reference)
-{
-    mg::Map query_params(1);
-    query_params.Insert("universal_symbol_reference", mg::Value(universal_symbol_reference));
-
-    std::stringstream ss;
-    ss << "match (fd:" << label << ") where fd.universal_symbol_reference = $universal_symbol_reference return fd";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(ss.str(), query_params.AsConstMap());
-    return static_cast<bool>(this->_mgclient->FetchOne());
 }
 
 class compile_command

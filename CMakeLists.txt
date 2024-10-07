@@ -38,6 +38,8 @@ add_executable(cpp-graph
   src/namespace_decl_node.cpp
   src/class_decl_node.cpp
   src/class_node.cpp
+  src/function_node.cpp
+  src/function_decl_def_node.cpp
   src/memgraph/cypher.cpp
   src/memgraph/cypher/property.cpp
   src/memgraph/cypher/property_set.cpp

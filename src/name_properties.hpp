@@ -26,7 +26,10 @@ class name_properties
     }
 
     void
-    fill(CXCursor cursor, std::string_view fq_name);
+    fill_with_fq_name(CXCursor cursor, std::string_view fq_name);
+
+    void
+    fill_with_fq_namespace(CXCursor cursor, std::string_view fq_namespace);
 };
 
 #endif

@@ -9,5 +9,9 @@ is_template_property::is_template_property():
 void
 is_template_property::fill(CXCursor cursor)
 {
-    this->prop = clang_getCursorKind(cursor) == CXCursor_ClassTemplate;
+    const CXCursorKind kind = clang_getCursorKind(cursor);
+    this->prop =
+        (kind == CXCursor_ClassTemplate ||
+         kind == CXCursor_FunctionTemplate ||
+         kind == CXCursor_ClassTemplatePartialSpecialization);
 }
