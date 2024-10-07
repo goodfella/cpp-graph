@@ -857,10 +857,6 @@ class ast_visitor
                    bool & created);
 
     bool
-    edge_exists(const std::string & label,
-                const cursor_location & location);
-
-    bool
     node_exists_by_location(const std::string & label,
                             const cursor_location & location);
 
@@ -1471,7 +1467,6 @@ ast_visitor::graph_function_call(CXCursor cursor, CXCursor parent)
         return true;
     }
 
-    const cursor_location cursor_loc = cursor_location(cursor);
     CXCursor callee_cursor = clang_getCursorReferenced(cursor);
 
     if (clang_Cursor_isNull(callee_cursor))
@@ -1479,30 +1474,25 @@ ast_visitor::graph_function_call(CXCursor cursor, CXCursor parent)
         return true;
     }
 
-    const std::string callee_usr = ngclang::to_string(callee_cursor, &clang_getCursorUSR);
-    const std::string caller_usr = this->_function_definitions.back().universal_symbol_reference();
+    const location_properties cursor_loc {cursor};
+    const universal_symbol_reference_property callee_usr {callee_cursor};
+    universal_symbol_reference_property caller_usr;
+    caller_usr.prop = this->_function_definitions.back().universal_symbol_reference();
 
-    if (this->edge_exists(":CALLS", cursor_loc))
+    if (ngmg::cypher::relationship_exists(*this->_mgclient,
+                                          calls_label,
+                                          ngmg::cypher::relationship_type::directed,
+                                          cursor_loc.tuple()))
     {
         return true;
     }
 
-    mg::Map query_params(5);
-    query_params.Insert("callee_usr", mg::Value(callee_usr));
-    query_params.Insert("caller_usr", mg::Value(caller_usr));
-    query_params.Insert("file", mg::Value(cursor_loc.file()));
-    query_params.Insert("line", mg::Value(cursor_loc.line()));
-    query_params.Insert("column", mg::Value(cursor_loc.column()));
-
-    std::stringstream ss;
-    ss << "match (callee), (caller)"
-       << " where "
-       << " caller.universal_symbol_reference = $caller_usr"
-       << " and callee.universal_symbol_reference = $callee_usr"
-       << " create (caller)-[:CALLS {file: $file, line: $line, column: $column}]->(callee)";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(ss.str(), query_params.AsConstMap());
+    ngmg::cypher::create_relate(*this->_mgclient,
+                                calls_label,
+                                caller_usr.tuple(),
+                                callee_usr.tuple(),
+                                ngmg::cypher::relationship_type::directed,
+                                cursor_loc.tuple());
 
     return true;
 }
@@ -1687,23 +1677,6 @@ ast_visitor::fully_qualified_namespace() const
     }
 
     return name;
-}
-
-bool
-ast_visitor::edge_exists(const std::string & label,
-                         const cursor_location & location)
-{
-    mg::Map query_params(3);
-    query_params.Insert("file", mg::Value(location.file()));
-    query_params.Insert("line", mg::Value(location.line()));
-    query_params.Insert("column", mg::Value(location.column()));
-
-    std::stringstream ss;
-    ss << "match (lhs)-[" << label << " {file: $file, line: $line, column: $column}]->(rhs) return rhs";
-
-    ngmg::statement_executor executor(std::ref(*this->_mgclient));
-    executor.execute(ss.str(), query_params.AsConstMap());
-    return static_cast<bool>(this->_mgclient->FetchOne());
 }
 
 bool

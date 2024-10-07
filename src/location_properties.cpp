@@ -8,6 +8,12 @@ location_properties::location_properties():
     file_prop {file_prop_name}
 {}
 
+location_properties::location_properties(CXCursor cursor):
+    location_properties ()
+{
+    this->fill(cursor);
+}
+
 void
 location_properties::fill(CXCursor cursor)
 {

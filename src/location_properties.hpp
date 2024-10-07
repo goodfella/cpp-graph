@@ -12,6 +12,8 @@ class location_properties
 
     location_properties();
 
+    location_properties(CXCursor cursor);
+
     ngmg::cypher::property<int> line_prop;
     ngmg::cypher::property<int> column_prop;
     ngmg::cypher::property<std::string> file_prop;

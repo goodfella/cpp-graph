@@ -388,8 +388,8 @@ namespace ngmg::cypher
     }
 
     template <ngmg::cypher::PropertyTuple SrcProps,
-        ngmg::cypher::PropertyTuple DstProps,
-        ngmg::cypher::PropertyTuple EdgeProps = std::tuple<>>
+              ngmg::cypher::PropertyTuple DstProps,
+              ngmg::cypher::PropertyTuple EdgeProps = std::tuple<>>
     bool
     relationship_exists(mg::Client & client,
                         const ngmg::cypher::label & edge_label,
@@ -419,6 +419,46 @@ namespace ngmg::cypher
                 std::cref(src_node_expr),
                 std::cref(edge_label),
                 std::cref(dst_node_expr),
+                type,
+                edge_props
+            };
+
+        const ngmg::cypher::match_clause match_clause
+            {
+                std::tie(rel_expr)
+            };
+
+        const ngmg::cypher::return_clause return_clause {std::cref(rel_var)};
+
+        ngmg::statement_executor executor(std::ref(client));
+        std::stringstream ss;
+
+        ngmg::cypher::detail::write_clauses(ss, match_clause, return_clause);
+
+        executor.execute(ss.str());
+        const std::optional<mg::Value> relationship =
+            ngmg::cypher::detail::fetch_relationship(executor);
+
+        return relationship.has_value();
+    }
+
+    template <ngmg::cypher::PropertyTuple EdgeProps = std::tuple<>>
+    bool
+    relationship_exists(mg::Client & client,
+                        const ngmg::cypher::label & edge_label,
+                        const ngmg::cypher::relationship_type type = ngmg::cypher::relationship_type::directed,
+                        const EdgeProps & edge_props = std::tuple<> {})
+    {
+        const ngmg::cypher::node_variable src_var {"s"};
+        const ngmg::cypher::node_variable dst_var {"d"};
+
+        const ngmg::cypher::relationship_variable rel_var {"r"};
+        const ngmg::cypher::relationship_expression rel_expr
+            {
+                std::cref(rel_var),
+                std::cref(src_var),
+                std::cref(edge_label),
+                std::cref(dst_var),
                 type,
                 edge_props
             };
