@@ -166,8 +166,8 @@ class name_decl
 
     name_decl(std::string_view name);
 
-    std::string
-    name() const;
+    const std::string &
+    name() const noexcept;
 
     private:
 
@@ -178,8 +178,8 @@ name_decl::name_decl(std::string_view name):
     _name(name)
 {}
 
-std::string
-name_decl::name() const
+const std::string &
+name_decl::name() const noexcept
 {
     return this->_name;
 }
@@ -191,8 +191,8 @@ class function_decl
     explicit
     function_decl(CXCursor cursor);
 
-    std::string
-    universal_symbol_reference() const;
+    const std::string &
+    universal_symbol_reference() const noexcept;
 
     const ngclang::cursor_location &
     location() const noexcept;
@@ -218,8 +218,8 @@ function_decl::function_decl(CXCursor cursor):
     }
 }
 
-std::string
-function_decl::universal_symbol_reference() const
+const std::string &
+function_decl::universal_symbol_reference() const noexcept
 {
     return this->_universal_symbol_reference;
 }
@@ -769,8 +769,6 @@ class ast_visitor
     ast_visitor_policy const * _policy = nullptr;
     std::vector<function_decl> _function_definitions;
     std::vector<ngclang::cursor_location> _ancestor_matches;
-
-    ngmg::cypher::property_set _child_prop_set = {};
     unsigned int _level = 0;
 };
 
