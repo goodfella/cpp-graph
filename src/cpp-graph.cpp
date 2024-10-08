@@ -1526,33 +1526,23 @@ ast_visitor::graph_member_function_decl(vector_sentry<function_decl> & function_
         return false;
     }
 
-    const auto cursor_usr = ngclang::universal_symbol_reference(cursor);
+    // Virtual function overrides
+    ngclang::overridden_cursors_t overrides;
+    unsigned num_overrides;
+    clang_getOverriddenCursors(cursor, &overrides.get(), &num_overrides);
 
+    const universal_symbol_reference_property cursor_usr {cursor};
+    const ngmg::cypher::label member_func_label {"MemberFunction"};
+
+    for(unsigned i = 0; i < num_overrides; ++i)
     {
-        // Virtual function overrides
-        ngclang::overridden_cursors_t overrides;
-        unsigned num_overrides;
-        clang_getOverriddenCursors(cursor, &overrides.get(), &num_overrides);
-
-        for(unsigned i = 0; i < num_overrides; ++i)
-        {
-            CXCursor & override_cursor = overrides.get()[i];
-            const std::string override_usr = ngclang::to_string(override_cursor, &clang_getCursorUSR);
-
-            mg::Map query_params(2);
-            query_params.Insert("mf_usr", mg::Value(cursor_usr.string()));
-            query_params.Insert("override_usr", mg::Value(override_usr));
-
-            std::stringstream ss;
-            ss << "match (mf:MemberFunction), (of:MemberFunction) "
-               << "where "
-               << "mf.universal_symbol_reference = $mf_usr and "
-               << "of.universal_symbol_reference = $override_usr "
-               << "create (mf)-[:OVERRIDES]->(of)";
-
-            ngmg::statement_executor executor(std::ref(*this->_mgclient));
-            executor.execute(ss.str(), query_params.AsConstMap());
-        }
+        const universal_symbol_reference_property override_usr {overrides.get()[i]};
+        ngmg::cypher::create_relate(*this->_mgclient,
+                                    overrides_label,
+                                    cursor_usr.tuple(),
+                                    member_func_label,
+                                    override_usr.tuple(),
+                                    member_func_label);
     }
 
     return true;

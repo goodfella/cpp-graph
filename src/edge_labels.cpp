@@ -5,3 +5,4 @@ const ngmg::cypher::label declares_label {"DECLARES"};
 const ngmg::cypher::label inherits_label {"INHERITS"};
 const ngmg::cypher::label calls_label {"CALLS"};
 const ngmg::cypher::label defines_label {"DEFINES"};
+const ngmg::cypher::label overrides_label {"OVERRIDES"};
