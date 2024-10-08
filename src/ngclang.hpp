@@ -88,6 +88,8 @@ namespace ngclang
         explicit
         cursor_location(CXCursor c);
 
+        cursor_location() = default;
+
         const std::string &
         file () const noexcept;
 

@@ -16,5 +16,6 @@ constexpr std::string_view display_name_prop_name = "display_name";
 constexpr std::string_view fq_name_prop_name = "fq_name";
 constexpr std::string_view name_prop_name = "name";
 constexpr std::string_view unqualified_name_prop_name = "unqualified_name";
+constexpr std::string_view is_template_prop_name = "is_template";
 
 #endif
