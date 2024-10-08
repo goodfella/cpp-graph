@@ -61,87 +61,6 @@ std::ostream& operator<<(std::ostream& stream, const CXString& str)
     return stream;
 }
 
-class cursor_location
-{
-    public:
-
-    explicit
-    cursor_location(CXCursor c);
-
-    cursor_location(const int line, std::string_view file, const int column);
-
-    explicit
-    cursor_location(const ngclang::cursor_location & l);
-
-    const std::string &
-    file () const noexcept;
-
-    int
-    line() const noexcept;
-
-    int
-    column() const noexcept;
-
-    private:
-
-    std::string _file;
-    int _line = {};
-    int _column = {};
-};
-
-cursor_location::cursor_location(CXCursor cursor)
-{
-    const CXSourceLocation location = clang_getCursorLocation(cursor);
-
-
-    unsigned int line;
-    unsigned int column;
-
-    CXFile file;
-    clang_getExpansionLocation(location,
-                               &file,
-                               &line,
-                               &column,
-                               nullptr);
-
-    this->_line = line;
-    this->_column = column;
-
-
-    ngclang::string_t path = clang_File_tryGetRealPathName(file);
-    this->_file = ngclang::to_string(path.get());
-}
-
-cursor_location::cursor_location(const ngclang::cursor_location & l):
-    _file(l.file()),
-    _line(l.line()),
-    _column(l.column())
-{}
-
-cursor_location::cursor_location(const int line, std::string_view file, const int column):
-    _file(file),
-    _line(line),
-    _column(column)
-{}
-
-const std::string &
-cursor_location::file() const noexcept
-{
-    return this->_file;
-}
-
-int
-cursor_location::line() const noexcept
-{
-    return this->_line;
-}
-
-int
-cursor_location::column() const noexcept
-{
-    return this->_column;
-}
-
 void
 print_cursor(CXCursor c, CXCursor parent, unsigned int level)
 {
@@ -244,11 +163,6 @@ printing_visitor(CXCursor c, CXCursor parent, CXClientData client_data)
 class name_decl
 {
     public:
-    name_decl(const std::string & name,
-              const cursor_location & location);
-
-    name_decl(const std::string & name,
-              const ngclang::cursor_location & location);
 
     name_decl(std::string_view name);
 
@@ -258,18 +172,10 @@ class name_decl
     private:
 
     std::string _name;
-    cursor_location _location;
 };
 
-name_decl::name_decl(const std::string & name,
-                     const cursor_location & location):
-    _name(name),
-    _location(location)
-{}
-
 name_decl::name_decl(std::string_view name):
-    _name(name),
-    _location(cursor_location {0, "", 0})
+    _name(name)
 {}
 
 std::string
@@ -288,15 +194,15 @@ class function_decl
     std::string
     universal_symbol_reference() const;
 
-    cursor_location
-    location() const;
+    const ngclang::cursor_location &
+    location() const noexcept;
 
     bool
     is_member_function() const noexcept;
 
     private:
 
-    cursor_location _location;
+    ngclang::cursor_location _location;
     std::string _universal_symbol_reference;
     bool _is_member_function = false;
 };
@@ -318,8 +224,8 @@ function_decl::universal_symbol_reference() const
     return this->_universal_symbol_reference;
 }
 
-cursor_location
-function_decl::location() const
+const ngclang::cursor_location &
+function_decl::location() const noexcept
 {
     return this->_location;
 }
@@ -862,7 +768,7 @@ class ast_visitor
     mg::Client * const _mgclient = nullptr;
     ast_visitor_policy const * _policy = nullptr;
     std::vector<function_decl> _function_definitions;
-    std::vector<cursor_location> _ancestor_matches;
+    std::vector<ngclang::cursor_location> _ancestor_matches;
 
     ngmg::cypher::property_set _child_prop_set = {};
     unsigned int _level = 0;
@@ -1078,11 +984,11 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
     }
 
     const CXCursorKind cursor_kind = clang_getCursorKind(cursor);
-    vector_sentry<cursor_location> ancestor_matches_sentry(std::ref(this->_ancestor_matches));
+    vector_sentry<ngclang::cursor_location> ancestor_matches_sentry(std::ref(this->_ancestor_matches));
 
     if (this->_policy)
     {
-        const cursor_location cursor_loc = cursor_location(cursor);
+        const ngclang::cursor_location cursor_loc {cursor};
 
         if (this->_policy->print_ast())
         {
