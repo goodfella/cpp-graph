@@ -728,7 +728,7 @@ class ast_visitor
                         CXCursor parent_cursor);
 
     bool
-    graph_function_call(CXCursor cursor, CXCursor parent_cursor);
+    graph_call_expr(CXCursor cursor, CXCursor parent_cursor);
 
     bool
     graph_class_decl(vector_sentry<name_decl> & name_sentry,
@@ -1053,7 +1053,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
         case CXCursor_CallExpr:
         {
-            if (!this->graph_function_call(cursor, parent_cursor))
+            if (!this->graph_call_expr(cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -1302,7 +1302,7 @@ ast_visitor::graph_function_decl(vector_sentry<function_decl> & function_def_sen
 }
 
 bool
-ast_visitor::graph_function_call(CXCursor cursor, CXCursor parent)
+ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 {
     if (this->_function_definitions.empty())
     {
