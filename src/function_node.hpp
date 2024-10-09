@@ -30,9 +30,13 @@ class function_node
     const ngmg::cypher::label &
     label() const noexcept;
 
+    const ngmg::cypher::label_set &
+    label_set() const noexcept;
+
     private:
 
     ngmg::cypher::label _label;
+    ngmg::cypher::label_set _label_set;
 };
 
 #endif

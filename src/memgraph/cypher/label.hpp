@@ -1,6 +1,7 @@
 #ifndef NGMG_CYPHER_LABEL_HPP
 #define NGMG_CYPHER_LABEL_HPP
 
+#include <set>
 #include <string>
 
 namespace ngmg::cypher
@@ -24,6 +25,8 @@ namespace ngmg::cypher
 
         std::string _name;
     };
+
+    using label_set = std::set<ngmg::cypher::label>;
 
     inline
     std::strong_ordering

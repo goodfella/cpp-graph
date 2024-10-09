@@ -4,7 +4,7 @@
 #include <type_traits>
 
 std::optional<mg::Value>
-ngmg::cypher::detail::fetch_node(ngmg::statement_executor & executor)
+ngmg::cypher::fetch_node(ngmg::statement_executor & executor)
 {
     const std::optional<std::vector<mg::Value>> maybe_result = executor.client().FetchOne();
     if (!maybe_result || maybe_result->size() < 1)

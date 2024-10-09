@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include "call_expr_node.hpp"
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 #include "class_decl_node.hpp"
@@ -22,6 +23,7 @@
 #include "namespace_node.hpp"
 #include "namespace_decl_node.hpp"
 #include "ngclang.hpp"
+#include "node_labels.hpp"
 #include "node_property_names.hpp"
 #include <optional>
 #include "raw_node.hpp"
@@ -30,6 +32,7 @@
 #include <string>
 #include <string_view>
 #include <unistd.h>
+#include "unknown_callee_node.hpp"
 #include <vector>
 
 class memgraph_init
@@ -1225,7 +1228,7 @@ ast_visitor::graph_function(CXCursor cursor,
         func_node.is_template.fill(cursor);
         func_node.names.fill_with_fq_namespace(cursor, this->fully_qualified_namespace());
         ngmg::cypher::create_node(*this->_mgclient,
-                                  func_node.label(),
+                                  func_node.label_set(),
                                   func_node.tuple());
         created = true;
     }
@@ -1235,7 +1238,7 @@ ast_visitor::graph_function(CXCursor cursor,
         function_decl function_def {cursor};
         function_def_sentry.push(function_def);
 
-        function_decl_def_node func_def_node {function_def_label};
+        function_decl_def_node func_def_node {function_def_label, callable_node_type::callable_definition};
         func_def_node.location.fill(cursor);
 
         if (!ngmg::cypher::node_exists(*this->_mgclient,
@@ -1244,7 +1247,7 @@ ast_visitor::graph_function(CXCursor cursor,
         {
             func_def_node.names.fill_with_fq_namespace(cursor, this->fully_qualified_namespace());
             ngmg::cypher::create_node(*this->_mgclient,
-                                      func_def_node.label(),
+                                      func_def_node.label_set(),
                                       func_def_node.tuple());
 
             ngmg::cypher::create_relate(*this->_mgclient,
@@ -1257,7 +1260,7 @@ ast_visitor::graph_function(CXCursor cursor,
     }
     else
     {
-        function_decl_def_node func_decl_node {function_dec_label};
+        function_decl_def_node func_decl_node {function_dec_label, callable_node_type::callable_declaration};
         func_decl_node.location.fill(cursor);
 
         if (!ngmg::cypher::node_exists(*this->_mgclient,
@@ -1266,7 +1269,7 @@ ast_visitor::graph_function(CXCursor cursor,
         {
             func_decl_node.names.fill_with_fq_namespace(cursor, this->fully_qualified_namespace());
             ngmg::cypher::create_node(*this->_mgclient,
-                                      func_decl_node.label(),
+                                      func_decl_node.label_set(),
                                       func_decl_node.tuple());
 
             ngmg::cypher::create_relate(*this->_mgclient,
@@ -1304,37 +1307,130 @@ ast_visitor::graph_function_decl(vector_sentry<function_decl> & function_def_sen
 bool
 ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 {
+
+    // no fix:
+    // call exprs = 1543
+    // call relationships = 299
+
+    // with fix:
+    // call exprs = 1571
+    // call relationships = 503
+
+    call_expr_node call_expr {cursor};
+    call_expr.function_def_present = !(this->_function_definitions.empty());
+
+    if (ngmg::cypher::node_exists(*this->_mgclient,
+                                  call_expr.label(),
+                                  call_expr.tuple()))
+    {
+        return true;
+    }
+
+    ngmg::cypher::create_node(*this->_mgclient,
+                              call_expr.label(),
+                              call_expr.tuple());
+
     if (this->_function_definitions.empty())
     {
         return true;
     }
 
-    CXCursor callee_cursor = clang_getCursorReferenced(cursor);
-
-    if (clang_Cursor_isNull(callee_cursor))
-    {
-        return true;
-    }
-
-    const location_properties cursor_loc {cursor};
-    const universal_symbol_reference_property callee_usr {callee_cursor};
     universal_symbol_reference_property caller_usr;
     caller_usr.prop = this->_function_definitions.back().universal_symbol_reference();
 
     if (ngmg::cypher::relationship_exists(*this->_mgclient,
                                           calls_label,
                                           ngmg::cypher::relationship_type::directed,
-                                          cursor_loc.tuple()))
+                                          call_expr.location.tuple()))
     {
         return true;
     }
 
-    ngmg::cypher::create_relate(*this->_mgclient,
-                                calls_label,
-                                caller_usr.tuple(),
-                                callee_usr.tuple(),
-                                ngmg::cypher::relationship_type::directed,
-                                cursor_loc.tuple());
+    std::optional<CXCursor> maybe_callee_cursor = ngclang::referenced_cursor(cursor);
+
+    if (!maybe_callee_cursor)
+    {
+        // When there is no reference cursor there seems to not be an
+        // easy way to determine what is being called.  This is going
+        // to require further investiation.
+
+        return true;
+    }
+
+    CXCursor callee_cursor = maybe_callee_cursor.value();
+
+    if (clang_Location_isInSystemHeader(clang_getCursorLocation(callee_cursor)))
+    {
+        // callee is in system header so ignore it
+        return true;
+    }
+
+    const std::optional<universal_symbol_reference_property> callee_usr_prop = [&callee_cursor, this, &call_expr] ()
+        {
+            universal_symbol_reference_property callee_usr {callee_cursor};
+            location_properties callee_loc {callee_cursor};
+            if (callee_usr.prop.value().empty())
+            {
+                return std::optional<universal_symbol_reference_property> {};
+            }
+
+            if (ngmg::cypher::node_exists(*this->_mgclient,
+                                          callable_label,
+                                          callee_usr.tuple()))
+            {
+                return std::optional<universal_symbol_reference_property> {callee_usr};
+            }
+
+            if (ngmg::cypher::node_return(*this->_mgclient,
+                                          defines_label,
+                                          callee_loc.tuple(),
+                                          callable_label,
+                                          std::tie(callee_usr.prop),
+                                          ngmg::cypher::relationship_type::directed))
+            {
+                return std::optional<universal_symbol_reference_property> {callee_usr};
+            }
+
+            if (ngmg::cypher::node_return(*this->_mgclient,
+                                          declares_label,
+                                          callee_loc.tuple(),
+                                          callable_label,
+                                          std::tie(callee_usr.prop),
+                                          ngmg::cypher::relationship_type::directed))
+            {
+                return std::optional<universal_symbol_reference_property> {callee_usr};
+            }
+
+            return std::optional<universal_symbol_reference_property> {};
+        }();
+
+    if (callee_usr_prop)
+    {
+        ngmg::cypher::merge_relate(*this->_mgclient,
+                                   calls_label,
+                                   caller_usr.tuple(),
+                                   callee_usr_prop->tuple(),
+                                   ngmg::cypher::relationship_type::directed,
+                                   call_expr.location.tuple());
+
+        ngmg::cypher::merge_relate(*this->_mgclient,
+                                   ngmg::cypher::label("TARGET"),
+                                   call_expr.tuple(),
+                                   callee_usr_prop->tuple(),
+                                   ngmg::cypher::relationship_type::directed);
+    }
+    else
+    {
+        unknown_callee_node unknown_callee {callee_cursor};
+        if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                       unknown_callee.label(),
+                                       unknown_callee.tuple()))
+        {
+            ngmg::cypher::create_node(*this->_mgclient,
+                                      unknown_callee.label(),
+                                      unknown_callee.tuple());
+        }
+    }
 
     return true;
 }

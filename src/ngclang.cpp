@@ -70,6 +70,20 @@ ngclang::to_string(CXCursor c, CXString (*f)(CXCursor))
     return to_string(string.get());
 }
 
+std::optional<CXCursor>
+ngclang::referenced_cursor(CXCursor cursor) noexcept
+{
+    CXCursor ref = clang_getCursorReferenced(cursor);
+    if (clang_Cursor_isNull(ref))
+    {
+        return std::optional<CXCursor> {};
+    }
+    else
+    {
+        return std::optional<CXCursor> {ref};
+    }
+}
+
 
 void
 ngclang::dispose_string::operator() (CXString cxstring) const noexcept

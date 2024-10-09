@@ -3,6 +3,7 @@
 
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
+#include <optional>
 #include <string>
 
 namespace ngclang
@@ -105,6 +106,9 @@ namespace ngclang
         unsigned int _line = {};
         unsigned int _column = {};
     };
+
+    std::optional<CXCursor>
+    referenced_cursor(CXCursor cursor) noexcept;
 
     struct dispose_string
     {

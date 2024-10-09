@@ -82,6 +82,16 @@ namespace ngmg::cypher
                 const bool value = (*mg_prop).second.ValueBool();
                 prop.value(value);
             }
+            else if constexpr (std::is_same_v<typename Prop::value_type, std::string>)
+            {
+                if ((*mg_prop).second.type() != mg::Value::Type::String)
+                {
+                    throw std::logic_error("value type missmatch");
+                }
+
+                const std::string value {(*mg_prop).second.ValueString()};
+                prop.value(value);
+            }
 
             if constexpr (sizeof...(Props) > 0)
             {
@@ -90,60 +100,60 @@ namespace ngmg::cypher
         }
 
         std::optional<mg::Value>
-        fetch_node(ngmg::statement_executor & executor);
-
-        std::optional<mg::Value>
         fetch_relationship(ngmg::statement_executor & executor);
+    }
 
-        template <ngmg::cypher::PropertyTuple MatchProps>
-        std::optional<mg::Value>
-        fetch_node(ngmg::statement_executor & executor,
-                   MatchProps match_props)
-        {
-            const ngmg::cypher::node_variable match_node_var {"n"};
-            const ngmg::cypher::node_expression match_node_expr
-                {
-                    std::cref(match_node_var),
-                    match_props
-                };
-            const ngmg::cypher::match_clause match_clause {std::tie(match_node_expr)};
-            const ngmg::cypher::return_clause return_clause
-                {
-                    std::cref(match_node_var)
-                };
+    std::optional<mg::Value>
+    fetch_node(ngmg::statement_executor & executor);
 
-            std::stringstream ss;
-            ngmg::cypher::detail::write_clauses(ss, match_clause, return_clause);
-            executor.execute(ss.str());
+    template <ngmg::cypher::PropertyTuple MatchProps>
+    std::optional<mg::Value>
+    fetch_node(ngmg::statement_executor & executor,
+               MatchProps match_props)
+    {
+        const ngmg::cypher::node_variable match_node_var {"n"};
+        const ngmg::cypher::node_expression match_node_expr
+            {
+                std::cref(match_node_var),
+                match_props
+            };
+        const ngmg::cypher::match_clause match_clause {std::tie(match_node_expr)};
+        const ngmg::cypher::return_clause return_clause
+            {
+                std::cref(match_node_var)
+            };
 
-            return ngmg::cypher::detail::fetch_node(executor);
-        }
+        std::stringstream ss;
+        ngmg::cypher::detail::write_clauses(ss, match_clause, return_clause);
+        executor.execute(ss.str());
 
-        template <ngmg::cypher::PropertyTuple MatchProps>
-        std::optional<mg::Value>
-        fetch_node(ngmg::statement_executor & executor,
-                   const ngmg::cypher::label & label,
-                   const MatchProps match_props)
-        {
-            const ngmg::cypher::node_variable match_node_var {"n"};
-            const ngmg::cypher::node_expression match_node_expr
-                {
-                    std::cref(match_node_var),
-                    std::cref(label),
-                    match_props
-                };
-            const ngmg::cypher::match_clause match_clause {std::tie(match_node_expr)};
-            const ngmg::cypher::return_clause return_clause
-                {
-                    std::cref(match_node_var)
-                };
+        return ngmg::cypher::fetch_node(executor);
+    }
 
-            std::stringstream ss;
-            ngmg::cypher::detail::write_clauses(ss, match_clause, return_clause);
-            executor.execute(ss.str());
+    template <ngmg::cypher::PropertyTuple MatchProps>
+    std::optional<mg::Value>
+    fetch_node(ngmg::statement_executor & executor,
+               const ngmg::cypher::label & label,
+               const MatchProps match_props)
+    {
+        const ngmg::cypher::node_variable match_node_var {"n"};
+        const ngmg::cypher::node_expression match_node_expr
+            {
+                std::cref(match_node_var),
+                std::cref(label),
+                match_props
+            };
+        const ngmg::cypher::match_clause match_clause {std::tie(match_node_expr)};
+        const ngmg::cypher::return_clause return_clause
+            {
+                std::cref(match_node_var)
+            };
 
-            return ngmg::cypher::detail::fetch_node(executor);
-        }
+        std::stringstream ss;
+        ngmg::cypher::detail::write_clauses(ss, match_clause, return_clause);
+        executor.execute(ss.str());
+
+        return ngmg::cypher::fetch_node(executor);
     }
 
     template <class ... Args>
@@ -344,16 +354,113 @@ namespace ngmg::cypher
                 ReturnProps return_props)
     {
         ngmg::statement_executor executor(std::ref(client));
-        const std::optional<mg::Value> value = ngmg::cypher::detail::fetch_node(executor, match_props);
+        const std::optional<mg::Value> value = ngmg::cypher::fetch_node(executor, match_props);
 
         if (!value)
         {
             return false;
         }
 
-        const mg::ConstNode node = value->ValueNode();
-        const mg::ConstMap properties = node.properties();
-        std::apply([&properties] (auto & ... p) {cypher::detail::fill_properties(properties, p...);}, return_props);
+        {
+            const mg::ConstNode node = value->ValueNode();
+            const mg::ConstMap properties = node.properties();
+            std::apply([&properties] (auto & ... p) {cypher::detail::fill_properties(properties, p...);}, return_props);
+        }
+
+        const auto empty_result = client.FetchOne();
+        if (empty_result)
+        {
+            throw std::logic_error("more than one node matched query");
+        }
+
+        return true;
+    }
+
+    template <ngmg::cypher::PropertyTuple MatchProps,
+              ngmg::cypher::PropertyTuple ReturnProps>
+    bool
+    node_return(mg::Client & client,
+                const ngmg::cypher::label & match_label,
+                const MatchProps & match_props,
+                ReturnProps return_props)
+    {
+        ngmg::statement_executor executor(std::ref(client));
+        const std::optional<mg::Value> value = ngmg::cypher::fetch_node(executor, match_label, match_props);
+
+        if (!value)
+        {
+            return false;
+        }
+
+        {
+            const mg::ConstNode node = value->ValueNode();
+            const mg::ConstMap properties = node.properties();
+            std::apply([&properties] (auto & ... p) {cypher::detail::fill_properties(properties, p...);}, return_props);
+        }
+
+        const auto empty_result = client.FetchOne();
+        if (empty_result)
+        {
+            throw std::logic_error("more than one node matched query");
+        }
+
+        return true;
+    }
+
+    template <ngmg::cypher::PropertyTuple MatchProps,
+              ngmg::cypher::PropertyTuple ReturnProps>
+    bool
+    node_return(mg::Client & client,
+                const ngmg::cypher::label & relationship_label,
+                const MatchProps & src_match_props,
+                const ngmg::cypher::label & match_label,
+                ReturnProps dst_return_props,
+                const ngmg::cypher::relationship_type type)
+    {
+        ngmg::cypher::node_variable src_var {"s"};
+        ngmg::cypher::node_expression src_node
+            {
+                std::cref(src_var),
+                src_match_props
+            };
+
+        ngmg::cypher::node_variable dst_var {"d"};
+        ngmg::cypher::node_expression dst_node
+            {
+                std::cref(dst_var),
+                std::cref(match_label),
+                std::tuple<> {}
+            };
+
+        ngmg::cypher::return_clause return_clause {std::cref(dst_var)};
+
+        ngmg::cypher::relationship_expression rel
+            {
+                std::cref(src_node),
+                relationship_label,
+                std::cref(dst_node),
+                type
+            };
+
+        ngmg::cypher::match_clause match_clause {std::tie(rel)};
+
+        ngmg::statement_executor executor(std::ref(client));
+        std::stringstream ss;
+        ngmg::cypher::detail::write_clauses(ss, match_clause, return_clause);
+        executor.execute(ss.str());
+
+        std::optional<mg::Value> value = ngmg::cypher::fetch_node(executor);
+
+        if (!value)
+        {
+            return false;
+        }
+
+        {
+            const mg::ConstNode node = value->ValueNode();
+            const mg::ConstMap properties = node.properties();
+            std::apply([&properties] (auto & ... p) {cypher::detail::fill_properties(properties, p...);}, dst_return_props);
+        }
 
         const auto empty_result = client.FetchOne();
         if (empty_result)
@@ -370,7 +477,7 @@ namespace ngmg::cypher
                 const MatchProps & match_props)
     {
         ngmg::statement_executor executor(std::ref(client));
-        const std::optional<mg::Value> value = ngmg::cypher::detail::fetch_node(executor, match_props);
+        const std::optional<mg::Value> value = ngmg::cypher::fetch_node(executor, match_props);
 
         return value.has_value();
     }
@@ -382,7 +489,7 @@ namespace ngmg::cypher
                 const MatchProps & match_props)
     {
         ngmg::statement_executor executor(std::ref(client));
-        const std::optional<mg::Value> value = ngmg::cypher::detail::fetch_node(executor, label, match_props);
+        const std::optional<mg::Value> value = ngmg::cypher::fetch_node(executor, label, match_props);
 
         return value.has_value();
     }
@@ -554,6 +661,23 @@ namespace ngmg::cypher
                 props,
                 std::cref(property_set)
             };
+        const ngmg::cypher::create_clause node_create {std::tie(create_node_expr)};
+
+        ngmg::cypher::execute(client, node_create);
+    }
+
+    template <ngmg::cypher::PropertyTuple Props>
+    void
+    create_node(mg::Client & client,
+                const std::set<ngmg::cypher::label> & label_set,
+                const Props & props)
+    {
+        const ngmg::cypher::node_expression create_node_expr
+            {
+                std::cref(label_set),
+                props
+            };
+
         const ngmg::cypher::create_clause node_create {std::tie(create_node_expr)};
 
         ngmg::cypher::execute(client, node_create);
