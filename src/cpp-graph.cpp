@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include "call_expr_node.hpp"
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 #include "class_decl_node.hpp"
@@ -30,6 +31,7 @@
 #include <string>
 #include <string_view>
 #include <unistd.h>
+#include "unknown_callee_node.hpp"
 #include <vector>
 
 class memgraph_init
@@ -1309,15 +1311,9 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
         return true;
     }
 
+    const location_properties cursor_loc {cursor};
     CXCursor callee_cursor = clang_getCursorReferenced(cursor);
 
-    if (clang_Cursor_isNull(callee_cursor))
-    {
-        return true;
-    }
-
-    const location_properties cursor_loc {cursor};
-    const universal_symbol_reference_property callee_usr {callee_cursor};
     universal_symbol_reference_property caller_usr;
     caller_usr.prop = this->_function_definitions.back().universal_symbol_reference();
 
@@ -1329,12 +1325,54 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
         return true;
     }
 
-    ngmg::cypher::create_relate(*this->_mgclient,
-                                calls_label,
-                                caller_usr.tuple(),
-                                callee_usr.tuple(),
-                                ngmg::cypher::relationship_type::directed,
-                                cursor_loc.tuple());
+    if (clang_Cursor_isNull(callee_cursor))
+    {
+        // When there is no reference cursor there seems to not be an
+        // easy way to determine what is being called.  This is going
+        // to require further investiation.
+
+        // call_expr_node call_expr {cursor};
+
+        // ngmg::cypher::create_node(*this->_mgclient,
+        //                           call_expr.label(),
+        //                           call_expr.tuple());
+
+        // ngmg::cypher::create_relate(*this->_mgclient,
+        //                             calls_label,
+        //                             caller_usr.tuple(),
+        //                             call_expr.tuple());
+
+        return true;
+    }
+
+    const universal_symbol_reference_property callee_usr {callee_cursor};
+
+    if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                   callee_usr.tuple()))
+    {
+        unknown_callee_node callee {callee_cursor};
+
+        ngmg::cypher::create_node(*this->_mgclient,
+                                  callee.label(),
+                                  callee.tuple());
+
+        ngmg::cypher::create_relate(*this->_mgclient,
+                                    calls_label,
+                                    caller_usr.tuple(),
+                                    callee.tuple(),
+                                    ngmg::cypher::relationship_type::directed,
+                                    cursor_loc.tuple());
+
+    }
+    else
+    {
+        ngmg::cypher::create_relate(*this->_mgclient,
+                                    calls_label,
+                                    caller_usr.tuple(),
+                                    callee_usr.tuple(),
+                                    ngmg::cypher::relationship_type::directed,
+                                    cursor_loc.tuple());
+    }
 
     return true;
 }

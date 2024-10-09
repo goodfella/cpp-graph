@@ -36,10 +36,12 @@ add_executable(cpp-graph
   src/universal_symbol_reference_property.cpp
   src/namespace_node.cpp
   src/namespace_decl_node.cpp
+  src/call_expr_node.cpp
   src/class_decl_node.cpp
   src/class_node.cpp
   src/function_node.cpp
   src/function_decl_def_node.cpp
+  src/unknown_callee_node.cpp
   src/memgraph/cypher.cpp
   src/memgraph/cypher/property.cpp
   src/memgraph/cypher/property_set.cpp
