@@ -553,6 +553,23 @@ function_labels(CXCursor cursor,
 
             break;
         }
+        case CXCursor_ConversionFunction:
+        {
+            if (label)
+            {
+                *label = "ConversionFunction";
+            }
+            if (decl_label)
+            {
+                *decl_label = "ConversionFunctionDeclaration";
+            }
+            if (def_label)
+            {
+                *def_label = "ConversionFunctionDefinition";
+            }
+
+            break;
+        }
         case CXCursor_FunctionTemplate:
         {
             const CXCursorKind instance_kind = clang_getTemplateCursorKind(cursor);
@@ -571,6 +588,23 @@ function_labels(CXCursor cursor,
                     if (def_label)
                     {
                         *def_label = "FunctionDefinition";
+                    }
+
+                    break;
+                }
+                case CXCursor_ConversionFunction:
+                {
+                    if (label)
+                    {
+                        *label = "ConversionFunction";
+                    }
+                    if (decl_label)
+                    {
+                        *decl_label = "ConversionFunctionDeclaration";
+                    }
+                    if (def_label)
+                    {
+                        *def_label = "ConversionFunctionDefinition";
                     }
 
                     break;
@@ -1051,6 +1085,12 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
             }
             break;
         }
+        case CXCursor_ConversionFunction:
+            if (!this->graph_function_decl(function_def_sentry, cursor, parent_cursor))
+            {
+                return CXChildVisit_Break;
+            };
+            break;
         case CXCursor_CallExpr:
         {
             if (!this->graph_call_expr(cursor, parent_cursor))
@@ -1311,7 +1351,7 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 
     // with fix:
     // call exprs = 1571
-    // call relationships = 503
+    // call relationships = 533
 
     call_expr_node call_expr {cursor};
     call_expr.function_def_present = !(this->_function_definitions.empty());
@@ -1329,6 +1369,20 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 
     if (this->_function_definitions.empty())
     {
+        /**
+         * This seems to be the case with calls from the following
+         * places
+         *
+         * - operator bool definitions
+         *   - CXXConversion, CXCursor_ConversionFunction cursor kind
+         * - operator T definitions
+         *   - CXXConversion, CXCursor_ConversionFunction cursor kind
+         * - member variable initialization in class definitions
+         *   - FieldDecl whose parent is a ClassDecl
+         *   - match (s {line:262}) where s.file contains ("udp_socket.hpp") return s;
+         * - global variable initialization
+         * - constexpr function calls in template argument lists
+         */
         return true;
     }
 
