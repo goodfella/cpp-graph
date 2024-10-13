@@ -55,7 +55,8 @@ raw_node::raw_node():
     templated_property {templated_prop_name},
     visited_property {visited_prop_name},
     type_spelling {type_spelling_prop_name},
-    display_name {display_name_prop_name}
+    display_name {display_name_prop_name},
+    instance_kind_property {instance_kind_prop_name}
 {}
 
 void
@@ -78,6 +79,16 @@ raw_node::fill_non_match_props(CXCursor cursor)
     this->templated_property.value((kind == CXCursor_FunctionTemplate ||
                                     kind == CXCursor_ClassTemplate ||
                                     kind == CXCursor_ClassTemplatePartialSpecialization));
+
+    if (this->templated_property.value())
+    {
+        const CXCursorKind instance_kind = clang_getTemplateCursorKind(cursor);
+        this->instance_kind_property = instance_kind;
+    }
+    else
+    {
+        this->instance_kind_property = -1;
+    }
 
     const ngclang::universal_symbol_reference usr {cursor};
 
@@ -107,7 +118,8 @@ raw_node::property_tuple() const -> decltype(std::tie(this->line_property,
                                                       this->templated_property,
                                                       this->visited_property,
                                                       this->type_spelling,
-                                                      this->display_name))
+                                                      this->display_name,
+                                                      this->instance_kind_property))
 {
     return std::tie(this->line_property,
                     this->column_property,
@@ -116,7 +128,8 @@ raw_node::property_tuple() const -> decltype(std::tie(this->line_property,
                     this->templated_property,
                     this->visited_property,
                     this->type_spelling,
-                    this->display_name);
+                    this->display_name,
+                    this->instance_kind_property);
 }
 
 auto

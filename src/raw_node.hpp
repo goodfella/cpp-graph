@@ -33,6 +33,7 @@ class raw_node
     ngmg::cypher::property<bool> visited_property;
     ngmg::cypher::property<std::string> type_spelling;
     ngmg::cypher::property<std::string> display_name;
+    ngmg::cypher::property<int> instance_kind_property;
 
     auto
     match_property_tuple() const -> decltype(std::tie(line_property,
@@ -48,7 +49,8 @@ class raw_node
                                                 templated_property,
                                                 visited_property,
                                                 type_spelling,
-                                                display_name));
+                                                display_name,
+                                                instance_kind_property));
 
     void
     clear_sets();

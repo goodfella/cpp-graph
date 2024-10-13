@@ -4,6 +4,7 @@
 #include <string_view>
 
 constexpr std::string_view kind_prop_name = "kind";
+constexpr std::string_view instance_kind_prop_name = "instance_kind";
 constexpr std::string_view line_prop_name = "line";
 constexpr std::string_view column_prop_name = "column";
 constexpr std::string_view file_prop_name = "file";
