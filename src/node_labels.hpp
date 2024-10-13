@@ -5,5 +5,6 @@
 
 extern const ngmg::cypher::label call_expr_label;
 extern const ngmg::cypher::label callable_label;
+extern const ngmg::cypher::label class_def_label;
 
 #endif

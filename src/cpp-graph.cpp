@@ -4,6 +4,7 @@
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 #include "class_decl_node.hpp"
+#include "class_def_node.hpp"
 #include "class_node.hpp"
 #include <cstring>
 #include "edge_labels.hpp"
@@ -1496,22 +1497,6 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 bool
 ast_visitor::graph_class_decl(vector_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
 {
-    class_decl_node class_decl;
-    class_decl.location.fill(cursor);
-    if (ngmg::cypher::node_exists(*this->_mgclient,
-                                  class_decl.label(),
-                                  class_decl.location.tuple()))
-    {
-        return true;
-    }
-
-    name_sentry.push(name_decl{ngclang::to_string(cursor, &clang_getCursorDisplayName)});
-    class_decl.names.fill_with_fq_name(cursor, this->fully_qualified_namespace());
-
-    ngmg::cypher::create_node(*this->_mgclient,
-                              class_decl.label(),
-                              class_decl.tuple());
-
     class_node class_node;
     class_node.usr.fill(cursor);
 
@@ -1526,12 +1511,56 @@ ast_visitor::graph_class_decl(vector_sentry<name_decl> & name_sentry, CXCursor c
                                   class_node.tuple());
     }
 
-    ngmg::cypher::create_relate(*this->_mgclient,
-                                declares_label,
-                                class_decl.location.tuple(),
-                                class_decl.label(),
-                                class_node.usr.tuple(),
-                                class_node.label());
+    if (clang_isCursorDefinition(cursor))
+    {
+        class_def_node class_def;
+        class_def.location.fill(cursor);
+        class_def.extent.fill(cursor);
+
+        if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                       class_def.label(),
+                                       class_def.location.tuple()))
+        {
+            name_sentry.push(name_decl{ngclang::to_string(cursor, &clang_getCursorDisplayName)});
+            class_def.names.fill_with_fq_name(cursor, this->fully_qualified_namespace());
+
+            ngmg::cypher::create_node(*this->_mgclient,
+                                      class_def.label(),
+                                      class_def.tuple());
+
+            ngmg::cypher::create_relate(*this->_mgclient,
+                                        defines_label,
+                                        class_def.location.tuple(),
+                                        class_def.label(),
+                                        class_node.usr.tuple(),
+                                        class_node.label());
+        }
+    }
+    else
+    {
+        class_decl_node class_decl;
+        class_decl.location.fill(cursor);
+        class_decl.extent.fill(cursor);
+
+        if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                       class_decl.label(),
+                                       class_decl.location.tuple()))
+        {
+            name_sentry.push(name_decl{ngclang::to_string(cursor, &clang_getCursorDisplayName)});
+            class_decl.names.fill_with_fq_name(cursor, this->fully_qualified_namespace());
+
+            ngmg::cypher::create_node(*this->_mgclient,
+                                      class_decl.label(),
+                                      class_decl.tuple());
+
+            ngmg::cypher::create_relate(*this->_mgclient,
+                                        declares_label,
+                                        class_decl.location.tuple(),
+                                        class_decl.label(),
+                                        class_node.usr.tuple(),
+                                        class_node.label());
+        }
+    }
 
     return this->graph_parent(cursor, parent_cursor);
 }
