@@ -31,6 +31,7 @@ add_executable(cpp-graph
   src/edge_labels.cpp
   src/node_labels.cpp
   src/raw_node.cpp
+  src/extent_properties.cpp
   src/has_reference_property.cpp
   src/location_properties.cpp
   src/name_properties.cpp

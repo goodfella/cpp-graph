@@ -1277,6 +1277,7 @@ ast_visitor::graph_function(CXCursor cursor,
 
         function_decl_def_node func_def_node {function_def_label, callable_node_type::callable_definition};
         func_def_node.location.fill(cursor);
+        func_def_node.extent.fill(cursor);
 
         if (!ngmg::cypher::node_exists(*this->_mgclient,
                                        func_def_node.label(),
@@ -1299,6 +1300,7 @@ ast_visitor::graph_function(CXCursor cursor,
     {
         function_decl_def_node func_decl_node {function_dec_label, callable_node_type::callable_declaration};
         func_decl_node.location.fill(cursor);
+        func_decl_node.extent.fill(cursor);
 
         if (!ngmg::cypher::node_exists(*this->_mgclient,
                                        func_decl_node.label(),
@@ -1472,6 +1474,11 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
     }
     else
     {
+        /**
+         * In this case we're unable to find the callee via its
+         * referenced cursr
+         */
+
         unknown_callee_node unknown_callee {callee_cursor};
         if (!ngmg::cypher::node_exists(*this->_mgclient,
                                        unknown_callee.label(),

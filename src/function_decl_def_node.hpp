@@ -1,6 +1,7 @@
 #ifndef FUNCTION_DECL_DEF_NODE_HPP
 #define FUNCTION_DECL_DEF_NODE_HPP
 
+#include "extent_properties.hpp"
 #include "location_properties.hpp"
 #include "memgraph/cypher/label.hpp"
 #include "name_properties.hpp"
@@ -22,12 +23,14 @@ class function_decl_def_node
 
     location_properties location;
     name_properties names;
+    extent_properties extent;
 
     auto
     tuple() const noexcept
     {
         return tuple_cat(this->location.tuple(),
-                         this->names.tuple());
+                         this->names.tuple(),
+                         extent.tuple());
     }
 
     const ngmg::cypher::label &

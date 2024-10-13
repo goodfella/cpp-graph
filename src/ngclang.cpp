@@ -13,10 +13,8 @@ ngclang::universal_symbol_reference::string() const noexcept
     return this->_string;
 }
 
-ngclang::cursor_location::cursor_location(CXCursor cursor)
+ngclang::cursor_location::cursor_location(CXSourceLocation location)
 {
-    const CXSourceLocation location = clang_getCursorLocation(cursor);
-
     CXFile file;
     clang_getExpansionLocation(location,
                                &file,
@@ -27,6 +25,10 @@ ngclang::cursor_location::cursor_location(CXCursor cursor)
     ngclang::string_t path = clang_File_tryGetRealPathName(file);
     this->_file = ngclang::to_string(path.get());
 }
+
+ngclang::cursor_location::cursor_location(CXCursor cursor):
+    cursor_location(clang_getCursorLocation(cursor))
+{}
 
 const std::string &
 ngclang::cursor_location::file() const noexcept
@@ -45,6 +47,61 @@ ngclang::cursor_location::column() const noexcept
 {
     return this->_column;
 }
+
+
+
+ngclang::cursor_range::cursor_range(CXCursor cursor)
+{
+    const CXSourceRange range = clang_getCursorExtent(cursor);
+    const ngclang::cursor_location start {clang_getRangeStart(range)};
+    const ngclang::cursor_location end {clang_getRangeEnd(range)};
+
+    this->_start_file = start.file();
+    this->_end_file = end.file();
+
+    this->_start_line = start.line();
+    this->_end_line = end.line();
+
+    this->_start_column = start.column();
+    this->_end_column = end.column();
+}
+
+const std::string &
+ngclang::cursor_range::start_file() const noexcept
+{
+    return this->_start_file;
+}
+
+int
+ngclang::cursor_range::start_line() const noexcept
+{
+    return this->_start_line;
+}
+
+int
+ngclang::cursor_range::start_column() const noexcept
+{
+    return this->_start_column;
+}
+
+const std::string &
+ngclang::cursor_range::end_file() const noexcept
+{
+    return this->_end_file;
+}
+
+int
+ngclang::cursor_range::end_line() const noexcept
+{
+    return this->_end_line;
+}
+
+int
+ngclang::cursor_range::end_column() const noexcept
+{
+    return this->_end_column;
+}
+
 
 std::string
 ngclang::to_string(CXString cxstring)

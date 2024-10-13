@@ -84,7 +84,10 @@ namespace ngclang
 
     class cursor_location
     {
-    public:
+        public:
+
+        explicit
+        cursor_location(CXSourceLocation location);
 
         explicit
         cursor_location(CXCursor c);
@@ -105,6 +108,44 @@ namespace ngclang
         std::string _file;
         unsigned int _line = {};
         unsigned int _column = {};
+    };
+
+    class cursor_range
+    {
+        public:
+
+        explicit
+        cursor_range(CXCursor c);
+
+        cursor_range() = default;
+
+        const std::string &
+        start_file () const noexcept;
+
+        int
+        start_line() const noexcept;
+
+        int
+        start_column() const noexcept;
+
+        const std::string &
+        end_file () const noexcept;
+
+        int
+        end_line() const noexcept;
+
+        int
+        end_column() const noexcept;
+
+        private:
+
+        std::string _start_file;
+        unsigned int _start_line = {};
+        unsigned int _start_column = {};
+
+        std::string _end_file;
+        unsigned int _end_line = {};
+        unsigned int _end_column = {};
     };
 
     std::optional<CXCursor>

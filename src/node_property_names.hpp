@@ -20,5 +20,11 @@ constexpr std::string_view unqualified_name_prop_name = "unqualified_name";
 constexpr std::string_view is_template_prop_name = "is_template";
 constexpr std::string_view has_reference_prop_name = "has_reference";
 constexpr std::string_view function_def_present_prop_name = "function_def_present";
+constexpr std::string_view start_line_prop_name = "start_line";
+constexpr std::string_view end_line_prop_name = "end_line";
+constexpr std::string_view start_column_prop_name = "start_column";
+constexpr std::string_view end_column_prop_name = "end_column";
+constexpr std::string_view start_file_prop_name = "start_file";
+constexpr std::string_view end_file_prop_name = "end_file";
 
 #endif

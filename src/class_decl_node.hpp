@@ -1,6 +1,7 @@
 #ifndef CLASS_DECL_NODE_HPP
 #define CLASS_DECL_NODE_HPP
 
+#include "extent_properties.hpp"
 #include "location_properties.hpp"
 #include "memgraph/cypher/label.hpp"
 #include "name_properties.hpp"
@@ -12,12 +13,14 @@ class class_decl_node
 
     location_properties location;
     name_properties names;
+    extent_properties extent;
 
     auto
     tuple() const noexcept
     {
         return tuple_cat(this->location.tuple(),
-                         this->names.tuple());
+                         this->names.tuple(),
+                         this->extent.tuple());
     }
 
     static
