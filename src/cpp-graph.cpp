@@ -555,80 +555,77 @@ function_labels(CXCursor cursor,
         }
         case CXCursor_FunctionTemplate:
         {
-            CXCursor semantic_parent = clang_getCursorSemanticParent(cursor);
-            if (!clang_Cursor_isNull(semantic_parent))
+            const CXCursorKind instance_kind = clang_getTemplateCursorKind(cursor);
+            switch(instance_kind)
             {
-                const auto parent_kind = clang_getCursorKind(semantic_parent);
-                switch(parent_kind)
+                case CXCursor_FunctionDecl:
                 {
-                    case CXCursor_ClassDecl:
+                    if (label)
                     {
-                        if (label)
-                        {
-                            *label = "MemberFunction";
-                        }
-                        if (decl_label)
-                        {
-                            *decl_label = "MemberFunctionDeclaration";
-                        }
-                        if (def_label)
-                        {
-                            *def_label = "MemberFunctionDefinition";
-                        }
-
-                        break;
+                        *label = "Function";
                     }
-                    case CXCursor_ClassTemplate:
+                    if (decl_label)
                     {
-                        if (label)
-                        {
-                            *label = "MemberFunction";
-                        }
-                        if (decl_label)
-                        {
-                            *decl_label = "MemberFunctionDeclaration";
-                        }
-                        if (def_label)
-                        {
-                            *def_label = "MemberFunctionDefinition";
-                        }
-
-                        break;
+                        *decl_label = "FunctionDeclaration";
                     }
-                    default:
+                    if (def_label)
                     {
-                        if (label)
-                        {
-                            *label = "Function";
-                        }
-                        if (decl_label)
-                        {
-                            *decl_label = "FunctionDeclaration";
-                        }
-                        if (def_label)
-                        {
-                            *def_label = "FunctionDefinition";
-                        }
-
-                        break;
+                        *def_label = "FunctionDefinition";
                     }
-                }
-            }
-            else
-            {
-                if (label)
-                {
-                    *label = "Function";
-                }
-                if (decl_label)
-                {
-                    *decl_label = "FunctionDeclaration";
-                }
-                if (def_label)
-                {
-                    *def_label = "FunctionDefinition";
-                }
 
+                    break;
+                }
+                case CXCursor_CXXMethod:
+                {
+                    if (label)
+                    {
+                        *label = "MemberFunction";
+                    }
+                    if (decl_label)
+                    {
+                        *decl_label = "MemberFunctionDeclaration";
+                    }
+                    if (def_label)
+                    {
+                        *def_label = "MemberFunctionDefinition";
+                    }
+
+                    break;
+                }
+                case CXCursor_Constructor:
+                {
+                    if (label)
+                    {
+                        *label = "Constructor";
+                    }
+                    if (decl_label)
+                    {
+                        *decl_label = "ConstructorDeclaration";
+                    }
+                    if (def_label)
+                    {
+                        *def_label = "ConstructorDefinition";
+                    }
+
+                    break;
+                }
+                default:
+                {
+                    if (label)
+                    {
+                        *label = "Function";
+                    }
+                    if (decl_label)
+                    {
+                        *decl_label = "FunctionDeclaration";
+                    }
+                    if (def_label)
+                    {
+                        *def_label = "FunctionDefinition";
+                    }
+
+                    break;
+                }
             }
 
             break;
