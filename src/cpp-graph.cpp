@@ -1355,7 +1355,7 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 
     // with fix:
     // call exprs = 1571
-    // call relationships = 533
+    // call relationships = 535
 
     call_expr_node call_expr {cursor};
     call_expr.function_def_present = !(this->_function_definitions.empty());
@@ -1379,14 +1379,22 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
          *
          * - operator bool definitions
          *   - CXXConversion, CXCursor_ConversionFunction cursor kind
+         *   - Handled by adding ConversionFunction nodes
          * - operator T definitions
          *   - CXXConversion, CXCursor_ConversionFunction cursor kind
+         *   - Handled by adding ConversionFunction nodes
          * - member variable initialization in class definitions
          *   - FieldDecl whose parent is a ClassDecl
          *   - match (s {line:262}) where s.file contains ("udp_socket.hpp") return s;
+         *   - Handled by treating class definitions as function definitions
          * - global variable initialization
+         *   - This case likely needs to be handled by checking for a
+         *     translation unit parent and then adding a CALLS
+         *     relationship from a translation unit to the callee
+         *
          * - constexpr function calls in template argument lists
          */
+
         return true;
     }
 
