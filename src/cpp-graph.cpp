@@ -766,7 +766,8 @@ class ast_visitor
     graph_call_expr(CXCursor cursor, CXCursor parent_cursor);
 
     bool
-    graph_class_decl(vector_sentry<name_decl> & name_sentry,
+    graph_class_decl(vector_sentry<function_decl> & function_def_sentry,
+                     vector_sentry<name_decl> & name_sentry,
                      CXCursor cursor,
                      CXCursor parent_cursor);
 
@@ -1103,7 +1104,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
         case CXCursor_ClassDecl:
         {
-            if (!this->graph_class_decl(name_sentry, cursor, parent_cursor))
+            if (!this->graph_class_decl(function_def_sentry, name_sentry, cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -1112,7 +1113,7 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
         }
         case CXCursor_ClassTemplate:
         {
-            if (!this->graph_class_decl(name_sentry, cursor, parent_cursor))
+            if (!this->graph_class_decl(function_def_sentry, name_sentry, cursor, parent_cursor))
             {
                 return CXChildVisit_Break;
             }
@@ -1389,9 +1390,6 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
         return true;
     }
 
-    universal_symbol_reference_property caller_usr;
-    caller_usr.prop = this->_function_definitions.back().universal_symbol_reference();
-
     if (ngmg::cypher::relationship_exists(*this->_mgclient,
                                           calls_label,
                                           ngmg::cypher::relationship_type::directed,
@@ -1460,6 +1458,9 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 
     if (callee_usr_prop)
     {
+        universal_symbol_reference_property caller_usr;
+        caller_usr.prop = this->_function_definitions.back().universal_symbol_reference();
+
         ngmg::cypher::merge_relate(*this->_mgclient,
                                    calls_label,
                                    caller_usr.tuple(),
@@ -1495,7 +1496,10 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 }
 
 bool
-ast_visitor::graph_class_decl(vector_sentry<name_decl> & name_sentry, CXCursor cursor, CXCursor parent_cursor)
+ast_visitor::graph_class_decl(vector_sentry<function_decl> & function_def_sentry,
+                              vector_sentry<name_decl> & name_sentry,
+                              CXCursor cursor,
+                              CXCursor parent_cursor)
 {
     class_node class_node;
     class_node.usr.fill(cursor);
@@ -1513,6 +1517,9 @@ ast_visitor::graph_class_decl(vector_sentry<name_decl> & name_sentry, CXCursor c
 
     if (clang_isCursorDefinition(cursor))
     {
+        function_decl function_def {cursor};
+        function_def_sentry.push(function_def);
+
         class_def_node class_def;
         class_def.location.fill(cursor);
         class_def.extent.fill(cursor);
