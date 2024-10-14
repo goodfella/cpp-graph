@@ -233,6 +233,56 @@ namespace ngmg::cypher
     create_relate(mg::Client & client,
                   const ngmg::cypher::label & rel_label,
                   const Src & src,
+                  const ngmg::cypher::label & src_label,
+                  const Dst & dst,
+                  const ngmg::cypher::relationship_type type = ngmg::cypher::relationship_type::directed,
+                  const Props & props = std::tuple<> {})
+    {
+        const ngmg::cypher::node_variable src_var ("s");
+        const ngmg::cypher::node_variable dst_var ("d");
+
+        const ngmg::cypher::node_expression src_node
+            {
+                std::cref(src_var),
+                std::cref(src_label),
+                src
+            };
+
+        const ngmg::cypher::node_expression dst_node
+            {
+                std::cref(dst_var),
+                dst
+            };
+
+        const ngmg::cypher::match_clause match_clause
+            {
+                std::tie(src_node, dst_node)
+            };
+
+        const ngmg::cypher::relationship_expression relationship_expr
+            {
+                std::cref(src_var),
+                std::cref(rel_label),
+                std::cref(dst_var),
+                type,
+                props
+            };
+
+        const ngmg::cypher::merge_clause create_clause
+            {
+                std::tie(relationship_expr)
+            };
+
+        ngmg::cypher::execute(client, match_clause, create_clause);
+    }
+
+    template <ngmg::cypher::PropertyTuple Src,
+              ngmg::cypher::PropertyTuple Dst,
+              ngmg::cypher::PropertyTuple Props = std::tuple<>>
+    void
+    create_relate(mg::Client & client,
+                  const ngmg::cypher::label & rel_label,
+                  const Src & src,
                   const Dst & dst,
                   const ngmg::cypher::relationship_type type = ngmg::cypher::relationship_type::directed,
                   const Props & props = std::tuple<> {})
@@ -291,6 +341,56 @@ namespace ngmg::cypher
         const ngmg::cypher::node_expression src_node
             {
                 std::cref(src_var),
+                src
+            };
+
+        const ngmg::cypher::node_expression dst_node
+            {
+                std::cref(dst_var),
+                dst
+            };
+
+        const ngmg::cypher::match_clause match_clause
+            {
+                std::tie(src_node, dst_node)
+            };
+
+        const ngmg::cypher::relationship_expression relationship_expr
+            {
+                std::cref(src_var),
+                std::cref(label),
+                std::cref(dst_var),
+                type,
+                props
+            };
+
+        const ngmg::cypher::merge_clause merge_clause
+            {
+                std::tie(relationship_expr)
+            };
+
+        ngmg::cypher::execute(client, match_clause, merge_clause);
+    }
+
+    template <ngmg::cypher::PropertyTuple Src,
+              ngmg::cypher::PropertyTuple Dst,
+              ngmg::cypher::PropertyTuple Props = std::tuple<>>
+    void
+    merge_relate(mg::Client & client,
+                 const ngmg::cypher::label & label,
+                 const Src & src,
+                 const ngmg::cypher::label src_label,
+                 const Dst & dst,
+                 const ngmg::cypher::relationship_type type = ngmg::cypher::relationship_type::directed,
+                 const Props & props = std::tuple<> {})
+    {
+        const ngmg::cypher::node_variable src_var ("s");
+        const ngmg::cypher::node_variable dst_var ("d");
+
+        const ngmg::cypher::node_expression src_node
+            {
+                std::cref(src_var),
+                std::cref(src_label),
                 src
             };
 

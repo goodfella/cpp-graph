@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include "call_expr_node.hpp"
+#include "call_site_node.hpp"
 #include <clang-c/CXCompilationDatabase.h>
 #include <clang-c/Index.h>
 #include "class_decl_node.hpp"
@@ -1348,17 +1349,48 @@ ast_visitor::graph_function_decl(vector_sentry<function_decl> & function_def_sen
 bool
 ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 {
-
     // no fix:
     // call exprs = 1543
     // call relationships = 299
 
     // with fix:
     // call exprs = 1571
-    // call relationships = 535
+    // call relationships = 540
 
     call_expr_node call_expr {cursor};
     call_expr.function_def_present = !(this->_function_definitions.empty());
+
+
+
+    std::optional<CXCursor> maybe_callee_cursor = ngclang::referenced_cursor(cursor);
+
+    if (!maybe_callee_cursor)
+    {
+        // When there is no reference cursor there seems to not be an
+        // easy way to determine what is being called.  This is going
+        // to require further investiation.
+
+        if (ngmg::cypher::node_exists(*this->_mgclient,
+                                      call_expr.label(),
+                                      call_expr.tuple()))
+        {
+            return true;
+        }
+
+        ngmg::cypher::create_node(*this->_mgclient,
+                                  call_expr.label(),
+                                  call_expr.tuple());
+
+        return true;
+    }
+
+    CXCursor callee_cursor = *maybe_callee_cursor;
+
+    if (clang_Location_isInSystemHeader(clang_getCursorLocation(callee_cursor)))
+    {
+        // callee is in system header so ignore it
+        return true;
+    }
 
     if (ngmg::cypher::node_exists(*this->_mgclient,
                                   call_expr.label(),
@@ -1371,61 +1403,7 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
                               call_expr.label(),
                               call_expr.tuple());
 
-    if (this->_function_definitions.empty())
-    {
-        /**
-         * This seems to be the case with calls from the following
-         * places
-         *
-         * - operator bool definitions
-         *   - CXXConversion, CXCursor_ConversionFunction cursor kind
-         *   - Handled by adding ConversionFunction nodes
-         * - operator T definitions
-         *   - CXXConversion, CXCursor_ConversionFunction cursor kind
-         *   - Handled by adding ConversionFunction nodes
-         * - member variable initialization in class definitions
-         *   - FieldDecl whose parent is a ClassDecl
-         *   - match (s {line:262}) where s.file contains ("udp_socket.hpp") return s;
-         *   - Handled by treating class definitions as function definitions
-         * - global variable initialization
-         *   - This case likely needs to be handled by checking for a
-         *     translation unit parent and then adding a CALLS
-         *     relationship from a translation unit to the callee
-         *
-         * - constexpr function calls in template argument lists
-         */
-
-        return true;
-    }
-
-    if (ngmg::cypher::relationship_exists(*this->_mgclient,
-                                          calls_label,
-                                          ngmg::cypher::relationship_type::directed,
-                                          call_expr.location.tuple()))
-    {
-        return true;
-    }
-
-    std::optional<CXCursor> maybe_callee_cursor = ngclang::referenced_cursor(cursor);
-
-    if (!maybe_callee_cursor)
-    {
-        // When there is no reference cursor there seems to not be an
-        // easy way to determine what is being called.  This is going
-        // to require further investiation.
-
-        return true;
-    }
-
-    CXCursor callee_cursor = maybe_callee_cursor.value();
-
-    if (clang_Location_isInSystemHeader(clang_getCursorLocation(callee_cursor)))
-    {
-        // callee is in system header so ignore it
-        return true;
-    }
-
-    const std::optional<universal_symbol_reference_property> callee_usr_prop = [&callee_cursor, this, &call_expr] ()
+    const std::optional<universal_symbol_reference_property> callee_usr_prop = [&callee_cursor, this] ()
         {
             universal_symbol_reference_property callee_usr {callee_cursor};
             location_properties callee_loc {callee_cursor};
@@ -1466,21 +1444,70 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 
     if (callee_usr_prop)
     {
-        universal_symbol_reference_property caller_usr;
-        caller_usr.prop = this->_function_definitions.back().universal_symbol_reference();
+        if (this->_function_definitions.empty())
+        {
+            call_site_node call_site {cursor};
 
-        ngmg::cypher::merge_relate(*this->_mgclient,
-                                   calls_label,
-                                   caller_usr.tuple(),
-                                   callee_usr_prop->tuple(),
-                                   ngmg::cypher::relationship_type::directed,
-                                   call_expr.location.tuple());
+            if (!ngmg::cypher::node_exists(*this->_mgclient,
+                                           call_site.label(),
+                                           call_site.tuple()))
+            {
+                ngmg::cypher::create_node(*this->_mgclient,
+                                          call_site.label(),
+                                          call_site.tuple());
 
-        ngmg::cypher::merge_relate(*this->_mgclient,
-                                   ngmg::cypher::label("TARGET"),
-                                   call_expr.tuple(),
-                                   callee_usr_prop->tuple(),
-                                   ngmg::cypher::relationship_type::directed);
+                if (!ngmg::cypher::relationship_exists(*this->_mgclient,
+                                                       calls_label,
+                                                       call_site.tuple(),
+                                                       callee_usr_prop->tuple(),
+                                                       ngmg::cypher::relationship_type::directed,
+                                                       call_expr.location.tuple()))
+                {
+                    ngmg::cypher::create_relate(*this->_mgclient,
+                                                calls_label,
+                                                call_site.tuple(),
+                                                call_site.label(),
+                                                callee_usr_prop->tuple(),
+                                                ngmg::cypher::relationship_type::directed,
+                                                call_expr.location.tuple());
+
+                    // Call Expression debug
+                    ngmg::cypher::create_relate(*this->_mgclient,
+                                                ngmg::cypher::label("TARGET"),
+                                                call_expr.tuple(),
+                                                call_expr.label(),
+                                                callee_usr_prop->tuple(),
+                                                ngmg::cypher::relationship_type::directed);
+                }
+            }
+        }
+        else
+        {
+            universal_symbol_reference_property caller_usr;
+            caller_usr.prop = this->_function_definitions.back().universal_symbol_reference();
+
+            if (!ngmg::cypher::relationship_exists(*this->_mgclient,
+                                                   calls_label,
+                                                   caller_usr.tuple(),
+                                                   callee_usr_prop->tuple(),
+                                                   ngmg::cypher::relationship_type::directed,
+                                                   call_expr.location.tuple()))
+            {
+                ngmg::cypher::merge_relate(*this->_mgclient,
+                                           calls_label,
+                                           caller_usr.tuple(),
+                                           callee_usr_prop->tuple(),
+                                           ngmg::cypher::relationship_type::directed,
+                                           call_expr.location.tuple());
+
+                // Call Expression Debug
+                ngmg::cypher::merge_relate(*this->_mgclient,
+                                           ngmg::cypher::label("TARGET"),
+                                           call_expr.tuple(),
+                                           callee_usr_prop->tuple(),
+                                           ngmg::cypher::relationship_type::directed);
+            }
+        }
     }
     else
     {
@@ -1497,6 +1524,12 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
             ngmg::cypher::create_node(*this->_mgclient,
                                       unknown_callee.label(),
                                       unknown_callee.tuple());
+
+            ngmg::cypher::merge_relate(*this->_mgclient,
+                                       ngmg::cypher::label("REFERENCES"),
+                                       call_expr.tuple(),
+                                       call_expr.label(),
+                                       unknown_callee.tuple());
         }
     }
 
