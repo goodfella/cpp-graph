@@ -1492,15 +1492,23 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
                                                    ngmg::cypher::relationship_type::directed,
                                                    call_expr.location.tuple()))
             {
-                ngmg::cypher::merge_relate(*this->_mgclient,
-                                           calls_label,
-                                           caller_usr.tuple(),
-                                           callee_usr_prop->tuple(),
-                                           ngmg::cypher::relationship_type::directed,
-                                           call_expr.location.tuple());
+                ngmg::cypher::create_relate(*this->_mgclient,
+                                            calls_label,
+                                            caller_usr.tuple(),
+                                            callee_usr_prop->tuple(),
+                                            ngmg::cypher::relationship_type::directed,
+                                            call_expr.location.tuple());
+            }
 
-                // Call Expression Debug
-                ngmg::cypher::merge_relate(*this->_mgclient,
+            // Call Expression Debug
+            if (!ngmg::cypher::relationship_exists(*this->_mgclient,
+                                                   targets_label,
+                                                   call_expr.tuple(),
+                                                   callee_usr_prop->tuple(),
+                                                   ngmg::cypher::relationship_type::directed))
+            {
+
+                ngmg::cypher::create_relate(*this->_mgclient,
                                            targets_label,
                                            call_expr.tuple(),
                                            callee_usr_prop->tuple(),
@@ -1516,6 +1524,7 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
          */
 
         unknown_callee_node unknown_callee {callee_cursor};
+
         if (!ngmg::cypher::node_exists(*this->_mgclient,
                                        unknown_callee.label(),
                                        unknown_callee.tuple()))
@@ -1523,12 +1532,19 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
             ngmg::cypher::create_node(*this->_mgclient,
                                       unknown_callee.label(),
                                       unknown_callee.tuple());
+        }
 
-            ngmg::cypher::merge_relate(*this->_mgclient,
-                                       references_label,
-                                       call_expr.tuple(),
-                                       call_expr.label(),
-                                       unknown_callee.tuple());
+        if (!ngmg::cypher::relationship_exists(*this->_mgclient,
+                                               references_label,
+                                               call_expr.tuple(),
+                                               unknown_callee.tuple(),
+                                               ngmg::cypher::relationship_type::directed))
+        {
+            ngmg::cypher::create_relate(*this->_mgclient,
+                                        references_label,
+                                        call_expr.tuple(),
+                                        call_expr.label(),
+                                        unknown_callee.tuple());
         }
     }
 
