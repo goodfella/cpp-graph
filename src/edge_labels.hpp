@@ -9,5 +9,7 @@ extern const ngmg::cypher::label inherits_label;
 extern const ngmg::cypher::label calls_label;
 extern const ngmg::cypher::label defines_label;
 extern const ngmg::cypher::label overrides_label;
+extern const ngmg::cypher::label targets_label;
+extern const ngmg::cypher::label references_label;
 
 #endif

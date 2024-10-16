@@ -998,7 +998,6 @@ ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
                                       ref_node.property_set);
         }
 
-        static const ngmg::cypher::label references_label("REFERENCES");
         ngmg::cypher::merge_relate(*this->_mgclient,
                                    references_label,
                                    node.match_property_tuple(),
@@ -1473,7 +1472,7 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 
                     // Call Expression debug
                     ngmg::cypher::create_relate(*this->_mgclient,
-                                                ngmg::cypher::label("TARGET"),
+                                                targets_label,
                                                 call_expr.tuple(),
                                                 call_expr.label(),
                                                 callee_usr_prop->tuple(),
@@ -1502,7 +1501,7 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 
                 // Call Expression Debug
                 ngmg::cypher::merge_relate(*this->_mgclient,
-                                           ngmg::cypher::label("TARGET"),
+                                           targets_label,
                                            call_expr.tuple(),
                                            callee_usr_prop->tuple(),
                                            ngmg::cypher::relationship_type::directed);
@@ -1526,7 +1525,7 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
                                       unknown_callee.tuple());
 
             ngmg::cypher::merge_relate(*this->_mgclient,
-                                       ngmg::cypher::label("REFERENCES"),
+                                       references_label,
                                        call_expr.tuple(),
                                        call_expr.label(),
                                        unknown_callee.tuple());
