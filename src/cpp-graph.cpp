@@ -970,7 +970,7 @@ ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
 
         if (!ref_node_exists)
         {
-            ref_node.fill_non_match_props(cursor);
+            ref_node.fill_non_match_props(ref_cursor);
             ref_node.visited_property.value(false);
 
             // Implicit template function instantiations generate
