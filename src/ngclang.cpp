@@ -141,6 +141,33 @@ ngclang::referenced_cursor(CXCursor cursor) noexcept
     }
 }
 
+std::optional<CXCursor>
+ngclang::lexical_parent(CXCursor cursor) noexcept
+{
+    CXCursor c = clang_getCursorLexicalParent(cursor);
+    if (clang_Cursor_isNull(c))
+    {
+        return std::optional<CXCursor> {};
+    }
+    else
+    {
+        return std::optional<CXCursor> {c};
+    }
+}
+
+std::optional<CXCursor>
+ngclang::semantic_parent(CXCursor cursor) noexcept
+{
+    CXCursor c = clang_getCursorSemanticParent(cursor);
+    if (clang_Cursor_isNull(c))
+    {
+        return std::optional<CXCursor> {};
+    }
+    else
+    {
+        return std::optional<CXCursor> {c};
+    }
+}
 
 void
 ngclang::dispose_string::operator() (CXString cxstring) const noexcept
@@ -165,7 +192,6 @@ ngclang::dispose_index::operator() (CXIndex index) const noexcept
 {
     clang_disposeIndex(index);
 }
-
 
 void
 ngclang::dispose_translation_unit::operator() (CXTranslationUnit tu) const noexcept

@@ -8,3 +8,5 @@ const ngmg::cypher::label defines_label {"DEFINES"};
 const ngmg::cypher::label overrides_label {"OVERRIDES"};
 const ngmg::cypher::label targets_label {"TARGETS"};
 const ngmg::cypher::label references_label {"REFERENCES"};
+const ngmg::cypher::label lexical_parent_label {"LEXICAl_PARENT"};
+const ngmg::cypher::label semantic_parent_label {"SEMANTIC_PARENT"};

@@ -749,6 +749,17 @@ class ast_visitor
     graph_raw(CXCursor cursor,
               CXCursor parent_cursor);
 
+    void
+    graph_raw_parent(const raw_node & node,
+                     const ngmg::cypher::label & label,
+                     const bool visited,
+                     CXCursor parent_cursor);
+
+    void
+    graph_raw_parents(const raw_node & node,
+                      CXCursor cursor,
+                      CXCursor parent_cursor);
+
     bool
     graph_parent(CXCursor cursor,
                  CXCursor parent_cursor);
@@ -827,6 +838,69 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor, CXClientData client_
     return CXChildVisit_Continue;
 }
 
+void
+ast_visitor::graph_raw_parent(const raw_node & node,
+                              const ngmg::cypher::label & label,
+                              const bool visited,
+                              CXCursor parent_cursor)
+{
+    static raw_node parent_node;
+
+    parent_node.clear_sets();
+    parent_node.fill_match_props(parent_cursor);
+    const bool parent_exists =
+        ngmg::cypher::node_return(*this->_mgclient,
+                                  parent_node.match_property_tuple(),
+                                  std::tie(parent_node.visited_property));
+
+    if (!parent_exists)
+    {
+        parent_node.visited_property.value(visited);
+        parent_node.fill_non_match_props(parent_cursor);
+        ngmg::cypher::create_node(*this->_mgclient,
+                                  parent_node.label_set,
+                                  parent_node.property_tuple(),
+                                  parent_node.property_set);
+    }
+    else if (parent_node.visited_property.value() == false && visited == true)
+    {
+        // parent node was originally added by way of not being
+        // visited but is now visited, so set the visited property to
+        // true.
+
+        parent_node.visited_property = true;
+        ngmg::cypher::match_set(*this->_mgclient,
+                                parent_node.match_property_tuple(),
+                                std::tie(parent_node.visited_property));
+    }
+
+    ngmg::cypher::merge_relate(*this->_mgclient,
+                               label,
+                               node.match_property_tuple(),
+                               parent_node.match_property_tuple());
+}
+
+void
+ast_visitor::graph_raw_parents(const raw_node & node,
+                               CXCursor cursor,
+                               CXCursor parent_cursor)
+{
+    static const ngmg::cypher::label parent_label("PARENT");
+    this->graph_raw_parent(node, parent_label, true, parent_cursor);
+
+    std::optional<CXCursor> lexical_parent_cursor = ngclang::lexical_parent(cursor);
+    if (lexical_parent_cursor)
+    {
+        this->graph_raw_parent(node, lexical_parent_label, false, *lexical_parent_cursor);
+    }
+
+    std::optional<CXCursor> semantic_parent_cursor = ngclang::semantic_parent(cursor);
+    if (semantic_parent_cursor)
+    {
+        this->graph_raw_parent(node, semantic_parent_label, false, *semantic_parent_cursor);
+    }
+}
+
 CXChildVisitResult
 ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
 {
@@ -862,115 +936,27 @@ ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
                                 std::tie(node.visited_property));
     }
 
-    {
-        // Handle parents
-
-        {
-            static raw_node parent_node;
-            static const ngmg::cypher::label parent_label("PARENT");
-
-            parent_node.clear_sets();
-            parent_node.fill_match_props(parent_cursor);
-            const bool parent_exists =
-                ngmg::cypher::node_exists(*this->_mgclient,
-                                          parent_node.match_property_tuple());
-
-            if (!parent_exists)
-            {
-                parent_node.visited_property.value(false);
-                parent_node.fill_non_match_props(parent_cursor);
-                ngmg::cypher::create_node(*this->_mgclient,
-                                          parent_node.label_set,
-                                          parent_node.property_tuple(),
-                                          parent_node.property_set);
-            }
-
-            ngmg::cypher::merge_relate(*this->_mgclient,
-                                       parent_label,
-                                       node.match_property_tuple(),
-                                       parent_node.match_property_tuple());
-        }
-
-        {
-            static raw_node lexical_parent_node;
-            static const ngmg::cypher::label parent_label("LEXICAL_PARENT");
-
-            CXCursor lexical_parent_cursor = clang_getCursorLexicalParent(cursor);
-            if (!clang_Cursor_isNull(lexical_parent_cursor))
-            {
-                lexical_parent_node.clear_sets();
-                lexical_parent_node.fill_match_props(lexical_parent_cursor);
-                const bool lexical_parent_exists =
-                    ngmg::cypher::node_exists(*this->_mgclient,
-                                              lexical_parent_node.match_property_tuple());
-
-
-                if (!lexical_parent_exists)
-                {
-                    // add lexical parent
-                    lexical_parent_node.visited_property.value(false);
-                    lexical_parent_node.fill_non_match_props(lexical_parent_cursor);
-                    ngmg::cypher::create_node(*this->_mgclient,
-                                              lexical_parent_node.label_set,
-                                              lexical_parent_node.property_tuple(),
-                                              lexical_parent_node.property_set);
-                }
-
-                ngmg::cypher::merge_relate(*this->_mgclient,
-                                           parent_label,
-                                           node.match_property_tuple(),
-                                           lexical_parent_node.match_property_tuple());
-            }
-        }
-
-        {
-            static raw_node semantic_parent_node;
-            static const ngmg::cypher::label parent_label("SEMANTIC_PARENT");
-
-            CXCursor semantic_parent_cursor = clang_getCursorSemanticParent(cursor);
-            if (!clang_Cursor_isNull(semantic_parent_cursor))
-            {
-                semantic_parent_node.clear_sets();
-                semantic_parent_node.fill_match_props(semantic_parent_cursor);
-                const bool semantic_parent_exists =
-                    ngmg::cypher::node_exists(*this->_mgclient,
-                                              semantic_parent_node.match_property_tuple());
-
-                if (!semantic_parent_exists)
-                {
-                    // add semantic parent
-                    semantic_parent_node.visited_property.value(false);
-                    semantic_parent_node.fill_non_match_props(semantic_parent_cursor);
-                    ngmg::cypher::create_node(*this->_mgclient,
-                                              semantic_parent_node.label_set,
-                                              semantic_parent_node.property_tuple(),
-                                              semantic_parent_node.property_set);
-                }
-
-                ngmg::cypher::merge_relate(*this->_mgclient,
-                                           parent_label,
-                                           node.match_property_tuple(),
-                                           semantic_parent_node.match_property_tuple());
-            }
-        }
-    }
+    // Graph parent cursors
+    this->graph_raw_parents(node, cursor, parent_cursor);
 
     // handle referenced cursor
 
-    CXCursor ref_cursor = clang_getCursorReferenced(cursor);
-    if (!clang_Cursor_isNull(ref_cursor) && !clang_equalCursors(cursor, ref_cursor))
+    std::optional<CXCursor> ref_cursor = ngclang::referenced_cursor(cursor);
+    if (ref_cursor &&
+        !clang_equalCursors(cursor, *ref_cursor) &&
+        !clang_Location_isInSystemHeader(clang_getCursorLocation(*ref_cursor)))
     {
         static raw_node ref_node;
 
         ref_node.clear_sets();
-        ref_node.fill_match_props(ref_cursor);
+        ref_node.fill_match_props(*ref_cursor);
 
         const bool ref_node_exists = ngmg::cypher::node_exists(*this->_mgclient,
                                                                ref_node.match_property_tuple());
 
         if (!ref_node_exists)
         {
-            ref_node.fill_non_match_props(ref_cursor);
+            ref_node.fill_non_match_props(*ref_cursor);
             ref_node.visited_property.value(false);
 
             // Implicit template function instantiations generate
@@ -996,6 +982,24 @@ ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
                                       ref_node.label_set,
                                       ref_node.property_tuple(),
                                       ref_node.property_set);
+
+            std::optional<CXCursor> lexical_parent_cursor = ngclang::lexical_parent(*ref_cursor);
+            if (lexical_parent_cursor)
+            {
+                this->graph_raw_parent(ref_node,
+                                       lexical_parent_label,
+                                       false,
+                                       *lexical_parent_cursor);
+            }
+
+            std::optional<CXCursor> semantic_parent_cursor = ngclang::semantic_parent(*ref_cursor);
+            if (semantic_parent_cursor)
+            {
+                this->graph_raw_parent(ref_node,
+                                       semantic_parent_label,
+                                       false,
+                                       *semantic_parent_cursor);
+            }
         }
 
         ngmg::cypher::merge_relate(*this->_mgclient,
@@ -1012,7 +1016,7 @@ ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
 CXChildVisitResult
 ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 {
-    if(clang_Location_isInSystemHeader( clang_getCursorLocation( cursor ) ) != 0 )
+    if (clang_Location_isInSystemHeader(clang_getCursorLocation(cursor)) != 0)
     {
         return CXChildVisit_Continue;
     }
