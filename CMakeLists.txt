@@ -34,6 +34,7 @@ add_executable(cpp-graph
   src/extent_properties.cpp
   src/has_reference_property.cpp
   src/location_properties.cpp
+  src/kind_properties.cpp
   src/name_properties.cpp
   src/is_template_property.cpp
   src/universal_symbol_reference_property.cpp

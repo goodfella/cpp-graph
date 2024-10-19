@@ -1524,7 +1524,7 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
     {
         /**
          * In this case we're unable to find the callee via its
-         * referenced cursr
+         * referenced cursor
          */
 
         unknown_callee_node unknown_callee {callee_cursor};
@@ -1533,9 +1533,17 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
                                        unknown_callee.label(),
                                        unknown_callee.tuple()))
         {
+            if (ngmg::cypher::node_exists(*this->_mgclient,
+                                          class_def_node::label(),
+                                          unknown_callee.location.tuple()))
+            {
+                unknown_callee.property_set.emplace("matches_class_def", true);
+            }
+
             ngmg::cypher::create_node(*this->_mgclient,
                                       unknown_callee.label(),
-                                      unknown_callee.tuple());
+                                      unknown_callee.tuple(),
+                                      unknown_callee.property_set);
         }
 
         if (!ngmg::cypher::relationship_exists(*this->_mgclient,

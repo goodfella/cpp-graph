@@ -56,7 +56,8 @@ raw_node::raw_node():
     visited_property {visited_prop_name},
     type_spelling {type_spelling_prop_name},
     display_name {display_name_prop_name},
-    instance_kind_property {instance_kind_prop_name}
+    instance_kind_property {instance_kind_prop_name},
+    is_definition_property {is_definition_prop_name}
 {}
 
 void
@@ -101,6 +102,7 @@ raw_node::fill_non_match_props(CXCursor cursor)
 
     this->type_spelling.value(ngclang::to_string(clang_getTypeSpelling(cursor_type)));
     this->display_name.value(ngclang::to_string(cursor, &clang_getCursorDisplayName));
+    this->is_definition_property = clang_isCursorDefinition(cursor);
 }
 
 void
@@ -119,7 +121,8 @@ raw_node::property_tuple() const -> decltype(std::tie(this->line_property,
                                                       this->visited_property,
                                                       this->type_spelling,
                                                       this->display_name,
-                                                      this->instance_kind_property))
+                                                      this->instance_kind_property,
+                                                      this->is_definition_property))
 {
     return std::tie(this->line_property,
                     this->column_property,
@@ -129,7 +132,8 @@ raw_node::property_tuple() const -> decltype(std::tie(this->line_property,
                     this->visited_property,
                     this->type_spelling,
                     this->display_name,
-                    this->instance_kind_property);
+                    this->instance_kind_property,
+                    this->is_definition_property);
 }
 
 auto

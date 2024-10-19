@@ -798,6 +798,24 @@ namespace ngmg::cypher
 
         ngmg::cypher::execute(client, node_create);
     }
+
+    template <ngmg::cypher::PropertyTuple Props>
+    void
+    create_node(mg::Client & client,
+                const ngmg::cypher::label & label,
+                const Props & props,
+                const ngmg::cypher::property_set & prop_set)
+    {
+        const ngmg::cypher::node_expression create_node_expr
+            {
+                std::cref(label),
+                props,
+                std::cref(prop_set)
+            };
+        const ngmg::cypher::create_clause node_create {std::tie(create_node_expr)};
+
+        ngmg::cypher::execute(client, node_create);
+    }
 }
 
 #endif

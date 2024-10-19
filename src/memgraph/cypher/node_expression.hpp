@@ -47,7 +47,7 @@ namespace ngmg::cypher
         node_expression(std::reference_wrapper<const ngmg::cypher::label> label,
                         const Props & props);
 
-        node_expression(std::reference_wrapper<ngmg::cypher::label> label,
+        node_expression(std::reference_wrapper<const ngmg::cypher::label> label,
                         const Props & props,
                         std::reference_wrapper<const ngmg::cypher::property_set> property_set);
 
@@ -108,7 +108,7 @@ namespace ngmg::cypher
     {}
 
     template <ngmg::cypher::PropertyTuple Props>
-    node_expression<Props>::node_expression(std::reference_wrapper<ngmg::cypher::label> label,
+    node_expression<Props>::node_expression(std::reference_wrapper<const ngmg::cypher::label> label,
                                             const Props & props,
                                             std::reference_wrapper<const ngmg::cypher::property_set> property_set):
         node_expression_base(nullptr, &label.get(), &property_set.get(), nullptr),
