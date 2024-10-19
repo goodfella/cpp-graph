@@ -57,7 +57,8 @@ raw_node::raw_node():
     type_spelling {type_spelling_prop_name},
     display_name {display_name_prop_name},
     instance_kind_property {instance_kind_prop_name},
-    is_definition_property {is_definition_prop_name}
+    is_definition_property {is_definition_prop_name},
+    has_reference_property {has_reference_prop_name}
 {}
 
 void
@@ -103,6 +104,18 @@ raw_node::fill_non_match_props(CXCursor cursor)
     this->type_spelling.value(ngclang::to_string(clang_getTypeSpelling(cursor_type)));
     this->display_name.value(ngclang::to_string(cursor, &clang_getCursorDisplayName));
     this->is_definition_property = clang_isCursorDefinition(cursor);
+
+    std::optional<CXCursor> ref_cursor = ngclang::referenced_cursor(cursor);
+    if (ref_cursor &&
+        !clang_Location_isInSystemHeader(clang_getCursorLocation(*ref_cursor)) &&
+        !clang_equalCursors(cursor, *ref_cursor))
+    {
+        this->has_reference_property = true;
+    }
+    else
+    {
+        this->has_reference_property = false;
+    }
 }
 
 void
@@ -122,7 +135,8 @@ raw_node::property_tuple() const -> decltype(std::tie(this->line_property,
                                                       this->type_spelling,
                                                       this->display_name,
                                                       this->instance_kind_property,
-                                                      this->is_definition_property))
+                                                      this->is_definition_property,
+                                                      this->has_reference_property))
 {
     return std::tie(this->line_property,
                     this->column_property,
@@ -133,7 +147,8 @@ raw_node::property_tuple() const -> decltype(std::tie(this->line_property,
                     this->type_spelling,
                     this->display_name,
                     this->instance_kind_property,
-                    this->is_definition_property);
+                    this->is_definition_property,
+                    this->has_reference_property);
 }
 
 auto

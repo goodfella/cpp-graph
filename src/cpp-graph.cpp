@@ -1002,10 +1002,16 @@ ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
             }
         }
 
-        ngmg::cypher::merge_relate(*this->_mgclient,
-                                   references_label,
-                                   node.match_property_tuple(),
-                                   ref_node.match_property_tuple());
+        if (!ngmg::cypher::relationship_exists(*this->_mgclient,
+                                               references_label,
+                                               node.match_property_tuple(),
+                                               ref_node.match_property_tuple()))
+        {
+            ngmg::cypher::create_relate(*this->_mgclient,
+                                        references_label,
+                                        node.match_property_tuple(),
+                                        ref_node.match_property_tuple());
+        }
     }
 
 
@@ -1525,6 +1531,9 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
         /**
          * In this case we're unable to find the callee via its
          * referenced cursor
+         *
+         * CallExpr without references include
+         * - (s:TemplateRef) -[PARENT*1..]->(d:CallExpr {has_reference: false})
          */
 
         unknown_callee_node unknown_callee {callee_cursor};
