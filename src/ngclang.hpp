@@ -152,6 +152,9 @@ namespace ngclang
     referenced_cursor(CXCursor cursor) noexcept;
 
     std::optional<CXCursor>
+    overloaded_cursor(CXCursor cursor, unsigned i) noexcept;
+
+    std::optional<CXCursor>
     lexical_parent(CXCursor cursor) noexcept;
 
     std::optional<CXCursor>

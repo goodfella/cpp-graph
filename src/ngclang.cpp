@@ -142,6 +142,20 @@ ngclang::referenced_cursor(CXCursor cursor) noexcept
 }
 
 std::optional<CXCursor>
+ngclang::overloaded_cursor(CXCursor cursor, unsigned i) noexcept
+{
+    CXCursor oc = clang_getOverloadedDecl(cursor, i);
+    if (clang_Cursor_isNull(oc))
+    {
+        return std::optional<CXCursor> {};
+    }
+    else
+    {
+        return std::optional<CXCursor> {oc};
+    }
+}
+
+std::optional<CXCursor>
 ngclang::lexical_parent(CXCursor cursor) noexcept
 {
     CXCursor c = clang_getCursorLexicalParent(cursor);

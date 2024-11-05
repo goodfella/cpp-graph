@@ -1014,6 +1014,50 @@ ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
         }
     }
 
+    const auto overloaded_decl_ref_count = clang_getNumOverloadedDecls(cursor);
+    for (unsigned int i = 0; i < overloaded_decl_ref_count; ++i)
+    {
+        const std::optional<CXCursor> overloaded_cursor = ngclang::overloaded_cursor(cursor, i);
+
+        if (!overloaded_cursor)
+        {
+            continue;
+        }
+
+        if (clang_Location_isInSystemHeader(clang_getCursorLocation(*overloaded_cursor)))
+        {
+            continue;
+        }
+
+        static raw_node overloaded_node;
+        overloaded_node.clear_sets();
+        overloaded_node.fill_match_props(*overloaded_cursor);
+
+        const bool overloaded_node_exists = ngmg::cypher::node_exists(*this->_mgclient,
+                                                                      overloaded_node.match_property_tuple());
+
+        if (!overloaded_node_exists)
+        {
+            overloaded_node.fill_non_match_props(*ref_cursor);
+            overloaded_node.visited_property.value(false);
+
+            ngmg::cypher::create_node(*this->_mgclient,
+                                      overloaded_node.label_set,
+                                      overloaded_node.property_tuple(),
+                                      overloaded_node.property_set);
+        }
+
+        if (!ngmg::cypher::relationship_exists(*this->_mgclient,
+                                               overload_reference_label,
+                                               node.match_property_tuple(),
+                                               overloaded_node.match_property_tuple()))
+        {
+            ngmg::cypher::create_relate(*this->_mgclient,
+                                        overload_reference_label,
+                                        node.match_property_tuple(),
+                                        overloaded_node.match_property_tuple());
+        }
+    };
 
     clang_visitChildren(cursor, &ast_visitor::graph, this);
     return CXChildVisit_Continue;
@@ -1369,15 +1413,38 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
     call_expr_node call_expr {cursor};
     call_expr.function_def_present = !(this->_function_definitions.empty());
 
-
-
     std::optional<CXCursor> maybe_callee_cursor = ngclang::referenced_cursor(cursor);
 
     if (!maybe_callee_cursor)
     {
-        // When there is no reference cursor there seems to not be an
-        // easy way to determine what is being called.  This is going
-        // to require further investiation.
+        // One case where there is no reference is when a CallExpr has
+        // a child DeclRefExpr who in turn has a OverloadDeclRef
+        // child.  In this case the OverloadDeclRef child has
+        // references to each function overload.  In some cases an
+        // OverloadDeclRef has a reference to a function with no
+        // overloads.  In the no overloads case it should be easy to
+        // pinpoint what function is called.
+
+        // Below is a cypher expression that matches the no overloads
+        // case:
+
+        /*
+         * match (s:OverloadedDeclRef)-[orr:OVERLOAD_REFERENCE]->(d)
+         * with s,count(s) as rel_count
+         * where rel_count = 1
+         * with s
+         * match (n1)-[r1:OVERLOAD_REFERENCE]-(s)-[r2:PARENT*1..]->(n2)
+         * return n1,r1,s,r2,n2
+         *
+         */
+
+        // For the cases where the OverloadedDeclRef references a
+        // function with multiple overloads it may be possible to
+        // determine the correct overload by matching the arguments
+        // associated with the CallExpr with the arguments for the
+        // overload.  CallExpr arguments and function arguments can be
+        // retrieved via clang_Cursor_getNumArguments() and
+        // clang_Cursor_getArgument().
 
         if (ngmg::cypher::node_exists(*this->_mgclient,
                                       call_expr.label(),

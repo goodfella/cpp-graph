@@ -10,3 +10,4 @@ const ngmg::cypher::label targets_label {"TARGETS"};
 const ngmg::cypher::label references_label {"REFERENCES"};
 const ngmg::cypher::label lexical_parent_label {"LEXICAl_PARENT"};
 const ngmg::cypher::label semantic_parent_label {"SEMANTIC_PARENT"};
+const ngmg::cypher::label overload_reference_label {"OVERLOAD_REFERENCE"};
