@@ -1059,6 +1059,43 @@ ast_visitor::graph_raw(CXCursor cursor, CXCursor parent_cursor)
         }
     };
 
+    for (unsigned i = 0; i < ngclang::num_arguments(cursor); ++i)
+    {
+        static raw_node argument_node;
+        argument_node.clear_sets();
+
+        std::optional<CXCursor> argument_cursor = ngclang::argument(cursor, i);
+
+        if (!argument_cursor)
+        {
+            continue;
+        }
+
+        argument_node.fill_match_props(*argument_cursor);
+        const bool argument_node_exists = ngmg::cypher::node_exists(*this->_mgclient,
+                                                                    argument_node.match_property_tuple());
+        if (!argument_node_exists)
+        {
+            argument_node.fill_non_match_props(*ref_cursor);
+            argument_node.visited_property.value(false);
+            ngmg::cypher::create_node(*this->_mgclient,
+                                      argument_node.label_set,
+                                      argument_node.property_tuple(),
+                                      argument_node.property_set);
+        }
+
+        if (!ngmg::cypher::relationship_exists(*this->_mgclient,
+                                               argument_label,
+                                               node.match_property_tuple(),
+                                               argument_node.match_property_tuple()))
+        {
+            ngmg::cypher::create_relate(*this->_mgclient,
+                                        argument_label,
+                                        node.match_property_tuple(),
+                                        argument_node.match_property_tuple());
+        }
+    }
+
     clang_visitChildren(cursor, &ast_visitor::graph, this);
     return CXChildVisit_Continue;
 }

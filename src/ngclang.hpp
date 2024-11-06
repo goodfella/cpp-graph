@@ -160,6 +160,12 @@ namespace ngclang
     std::optional<CXCursor>
     semantic_parent(CXCursor cursor) noexcept;
 
+    std::size_t
+    num_arguments(CXCursor cursor) noexcept;
+
+    std::optional<CXCursor>
+    argument(CXCursor, unsigned i) noexcept;
+
     struct dispose_string
     {
         void

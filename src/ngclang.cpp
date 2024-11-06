@@ -183,6 +183,32 @@ ngclang::semantic_parent(CXCursor cursor) noexcept
     }
 }
 
+std::size_t
+ngclang::num_arguments(CXCursor cursor) noexcept
+{
+    const int num_arguments = clang_Cursor_getNumArguments(cursor);
+    if (num_arguments ==-1)
+    {
+        return 0U;
+    }
+
+    return static_cast<std::size_t>(num_arguments);
+}
+
+std::optional<CXCursor>
+ngclang::argument(CXCursor cursor, unsigned i) noexcept
+{
+    CXCursor c = clang_Cursor_getArgument(cursor, i);
+    if (clang_Cursor_isNull(c))
+    {
+        return std::optional<CXCursor> {};
+    }
+    else
+    {
+        return std::optional<CXCursor> {c};
+    }
+}
+
 void
 ngclang::dispose_string::operator() (CXString cxstring) const noexcept
 {

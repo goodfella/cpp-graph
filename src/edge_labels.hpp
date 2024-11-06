@@ -14,5 +14,6 @@ extern const ngmg::cypher::label references_label;
 extern const ngmg::cypher::label lexical_parent_label;
 extern const ngmg::cypher::label semantic_parent_label;
 extern const ngmg::cypher::label overload_reference_label;
+extern const ngmg::cypher::label argument_label;
 
 #endif
