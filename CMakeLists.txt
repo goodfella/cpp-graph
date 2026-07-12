@@ -37,6 +37,7 @@ add_executable(cpp-graph
   src/kind_properties.cpp
   src/name_properties.cpp
   src/is_template_property.cpp
+  src/is_struct_property.cpp
   src/universal_symbol_reference_property.cpp
   src/namespace_node.cpp
   src/namespace_decl_node.cpp

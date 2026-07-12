@@ -1202,6 +1202,15 @@ ast_visitor::graph(CXCursor cursor, CXCursor parent_cursor)
 
             break;
         }
+        case CXCursor_StructDecl:
+        {
+            if (!this->graph_class_decl(function_def_sentry, name_sentry, cursor, parent_cursor))
+            {
+                return CXChildVisit_Break;
+            }
+
+            break;
+        }
         case CXCursor_ClassTemplate:
         {
             if (!this->graph_class_decl(function_def_sentry, name_sentry, cursor, parent_cursor))
@@ -1691,6 +1700,7 @@ ast_visitor::graph_class_decl(vector_sentry<function_decl> & function_def_sentry
     {
         class_node.names.fill_with_fq_name(cursor, this->fully_qualified_namespace());
         class_node.is_template.fill(cursor);
+        class_node.is_struct.fill(cursor);
         ngmg::cypher::create_node(*this->_mgclient,
                                   class_node.label(),
                                   class_node.tuple());

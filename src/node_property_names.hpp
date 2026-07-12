@@ -20,6 +20,7 @@ constexpr std::string_view name_prop_name = "name";
 constexpr std::string_view unqualified_name_prop_name = "unqualified_name";
 constexpr std::string_view is_template_prop_name = "is_template";
 constexpr std::string_view is_definition_prop_name = "is_definition";
+constexpr std::string_view is_struct_prop_name = "is_struct";
 constexpr std::string_view has_reference_prop_name = "has_reference";
 constexpr std::string_view function_def_present_prop_name = "function_def_present";
 constexpr std::string_view start_line_prop_name = "start_line";

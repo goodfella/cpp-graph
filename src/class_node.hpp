@@ -2,6 +2,7 @@
 #define CLASS_NODE_HPP
 
 #include "is_template_property.hpp"
+#include "is_struct_property.hpp"
 #include "memgraph/cypher/label.hpp"
 #include "name_properties.hpp"
 #include <tuple>
@@ -14,13 +15,15 @@ class class_node
     name_properties names;
     universal_symbol_reference_property usr;
     is_template_property is_template;
+    is_struct_property is_struct;
 
     auto
     tuple() const noexcept
     {
         return tuple_cat(names.tuple(),
                          usr.tuple(),
-                         is_template.tuple());
+                         is_template.tuple(),
+                         is_struct.tuple());
     }
 
     static
