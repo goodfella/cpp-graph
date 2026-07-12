@@ -1459,9 +1459,9 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
     call_expr_node call_expr {cursor};
     call_expr.function_def_present = !(this->_function_definitions.empty());
 
-    std::optional<CXCursor> maybe_callee_cursor = ngclang::referenced_cursor(cursor);
+    CXCursor callee_cursor = clang_getCursorReferenced(cursor);
 
-    if (!maybe_callee_cursor)
+    if (clang_Cursor_isNull(callee_cursor))
     {
         // One case where there is no reference is when a CallExpr has
         // a child DeclRefExpr who in turn has a OverloadDeclRef
@@ -1490,7 +1490,17 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
         // associated with the CallExpr with the arguments for the
         // overload.  CallExpr arguments and function arguments can be
         // retrieved via clang_Cursor_getNumArguments() and
-        // clang_Cursor_getArgument().
+        // clang_Cursor_getArgument().  Although, template function
+        // arguments are not retrievable this way.
+
+        /** Function and CallExpr parameter cursor kinds and their
+         *  relationships with respect to parameters
+         *
+         * (Callable) <-[:PARENT]- (ParmDecl) <-[:PARENT]- (TypeRef) -[:REFERENCES]-> (UDT)
+         * (Callable) <-[:PARENT]- (ParmDecl) <-[:PARENT]- (TemplateRef) -[:REFERENCES]-> (UDT)
+         * (CallExpr) <-[:PARENT]- (DeclRefExpr) -[:REFERENCES]-> (ParmDecl) <-[:PARENT]- (TemplateRef)
+         *
+         */
 
         if (ngmg::cypher::node_exists(*this->_mgclient,
                                       call_expr.label(),
@@ -1505,8 +1515,6 @@ ast_visitor::graph_call_expr(CXCursor cursor, CXCursor parent)
 
         return true;
     }
-
-    CXCursor callee_cursor = *maybe_callee_cursor;
 
     if (clang_Location_isInSystemHeader(clang_getCursorLocation(callee_cursor)))
     {
