@@ -120,11 +120,12 @@ ngclang::to_string(CXCursor c, CXString (*f)(CXCursor))
 {
     if(clang_Cursor_isNull(c))
     {
-        return std::string();
+        return std::string {};
     }
 
     ngclang::string_t string = f(c);
-    return to_string(string.get());
+    const std::string ret {ngclang::to_string(string.get())};
+    return ret;
 }
 
 std::optional<CXCursor>
